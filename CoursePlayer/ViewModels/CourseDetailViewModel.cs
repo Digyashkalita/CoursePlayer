@@ -1,0 +1,239 @@
+using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using CoursePlayer.Data;
+using CoursePlayer.Services;
+using MaterialDesignThemes.Wpf;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+
+namespace CoursePlayer.ViewModels;
+
+/// <summary>
+/// The course-detail screen. Opened from a Home card with the course id; loads the course
+/// and its assets and groups them by their imported folder hierarchy (sections). This is
+/// where the Phase 2 probe metadata (duration, resolution) first becomes visible.
+/// </summary>
+public partial class CourseDetailViewModel : PageViewModelBase, INavigationAware
+{
+    private readonly IDatabaseWriter _database;
+    private readonly INavigationService _navigation;
+    private readonly ILogger<CourseDetailViewModel> _logger;
+
+    public CourseDetailViewModel(
+        IDatabaseWriter database,
+        INavigationService navigation,
+        ILogger<CourseDetailViewModel> logger)
+    {
+        _database = database;
+        _navigation = navigation;
+        _logger = logger;
+        Title = "Course";
+
+        // Initialize the PlayVideoCommand
+        PlayVideoCommand = new AsyncRelayCommand<object>(PlayVideoAsync);
+    }
+
+    public ObservableCollection<CourseSectionViewModel> Sections { get; } = [];
+
+    [ObservableProperty]
+    private string _courseTitle = string.Empty;
+
+    [ObservableProperty]
+    private string _folderPath = string.Empty;
+
+    [ObservableProperty]
+    private string _summary = string.Empty;
+
+    [ObservableProperty]
+    private string _errorMessage = string.Empty;
+
+    public bool CanGoBack => _navigation.CanGoBack;
+
+    [RelayCommand]
+    private Task BackAsync() => _navigation.GoBackAsync();
+
+    /// <summary>
+    /// Command to play a video asset.
+    /// </summary>
+    public IAsyncRelayCommand<object> PlayVideoCommand { get; }
+
+    private async Task PlayVideoAsync(object? parameter)
+    {
+        if (parameter is CourseAssetViewModel assetVm)
+        {
+            await _navigation.NavigateToAsync<VideoPlayerViewModel>(assetVm.AssetId);
+        }
+    }
+
+    public Task OnNavigatedToAsync(object? parameter, CancellationToken cancellationToken = default)
+    {
+        if (parameter is int courseId)
+        {
+            return LoadAsync(courseId, cancellationToken);
+        }
+
+        ErrorMessage = "No course was specified.";
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadAsync(int courseId, CancellationToken cancellationToken)
+    {
+        IsBusy = true;
+        ErrorMessage = null;
+
+        try
+        {
+            var course = await _database.QueryAsync(
+                (context, token) => context.Courses
+                    .AsNoTracking()
+                    .Include(c => c.Assets)
+                    .FirstOrDefaultAsync(c => c.Id == courseId, token),
+                cancellationToken);
+
+            if (course is null)
+            {
+                ErrorMessage = "This course could not be found. It may have been removed.";
+                return;
+            }
+
+            CourseTitle = course.Title;
+            Title = course.Title;
+            FolderPath = course.FolderPath;
+
+            var assets = course.Assets.OrderBy(a => a.OrderIndex).ToList();
+            Summary = BuildSummary(assets);
+
+            Sections.Clear();
+            foreach (var group in GroupIntoSections(assets))
+            {
+                Sections.Add(group);
+            }
+
+            _logger.LogDebug(
+                "Course {CourseId} loaded with {AssetCount} asset(s) in {SectionCount} section(s).",
+                courseId,
+                assets.Count,
+                Sections.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load course {CourseId}.", courseId);
+            ErrorMessage = "Could not open this course. See the log for details.";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    // Assets arrive pre-ordered by (section, filename), so grouping by section in
+    // first-appearance order keeps sections in tree order with root-level files first.
+    private static IEnumerable<CourseSectionViewModel> GroupIntoSections(IReadOnlyList<Asset> assets)
+    {
+        var groups = new List<CourseSectionViewModel>();
+        var byName = new Dictionary<string, CourseSectionViewModel>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var asset in assets)
+        {
+            var key = string.IsNullOrEmpty(asset.Section) ? string.Empty : asset.Section!;
+            if (!byName.TryGetValue(key, out var group))
+            {
+                // A root-level file has no folder; label its bucket so the header still reads.
+                var name = key.Length == 0 ? "Course root" : key.Replace("/", " › ");
+                group = new CourseSectionViewModel(name);
+                byName[key] = group;
+                groups.Add(group);
+            }
+
+            group.Assets.Add(new CourseAssetViewModel(asset));
+        }
+
+        // If everything sits in the root there is only one, unlabelled-feeling group; still
+        // fine to show. Refresh each group's caption now that its assets are in.
+        foreach (var group in groups)
+        {
+            group.RefreshSummary();
+        }
+
+        return groups;
+    }
+
+    private static string BuildSummary(IReadOnlyList<Asset> assets)
+    {
+        var videos = assets.Count(a => a.Type == AssetType.Video);
+        var others = assets.Count - videos;
+        var sections = assets
+            .Select(a => a.Section)
+            .Where(s => !string.IsNullOrEmpty(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+
+        var parts = new List<string>(3);
+        if (videos > 0) parts.Add($"{videos} {(videos == 1 ? "video" : "videos")}");
+        if (others > 0) parts.Add($"{others} {(others == 1 ? "document" : "documents")}");
+        if (sections > 1) parts.Add($"{sections} sections");
+
+        return parts.Count == 0 ? "Empty course" : string.Join(" · ", parts);
+    }
+}
+
+/// <summary>One section (an imported subfolder) and the assets inside it.</summary>
+public partial class CourseSectionViewModel : ObservableObject
+{
+    public CourseSectionViewModel(string name) => Name = name;
+
+    public string Name { get; }
+
+    public ObservableCollection<CourseAssetViewModel> Assets { get; } = [];
+
+    [ObservableProperty]
+    private string _summary = string.Empty;
+
+    public void RefreshSummary()
+    {
+        var count = Assets.Count;
+        Summary = $"{count} {(count == 1 ? "item" : "items")}";
+    }
+}
+
+/// <summary>A single asset row in the detail view.</summary>
+public sealed class CourseAssetViewModel
+{
+    public CourseAssetViewModel(Asset asset)
+    {
+        Title = asset.Title;
+        IsOnline = asset.IsOnline;
+        Icon = IconFor(asset.Type);
+        Duration = asset.Duration is { } d ? FormatDuration(d) : null;
+        Resolution = asset.Resolution;
+        AssetId = asset.Id;
+    }
+
+    public string Title { get; }
+
+    public bool IsOnline { get; }
+
+    public PackIconKind Icon { get; }
+
+    /// <summary>Formatted length, or null for documents / unprobed videos.</summary>
+    public string? Duration { get; }
+
+    public string? Resolution { get; }
+
+    public int AssetId { get; }
+
+    private static PackIconKind IconFor(AssetType type) => type switch
+    {
+        AssetType.Video => PackIconKind.PlayCircleOutline,
+        AssetType.Pdf => PackIconKind.FilePdfBox,
+        AssetType.Docx => PackIconKind.FileWordBox,
+        AssetType.Text => PackIconKind.FileDocumentOutline,
+        _ => PackIconKind.FileOutline,
+    };
+
+    private static string FormatDuration(TimeSpan value) =>
+        value.TotalHours >= 1
+            ? $"{(int)value.TotalHours}:{value.Minutes:D2}:{value.Seconds:D2}"
+            : $"{value.Minutes}:{value.Seconds:D2}";
+}

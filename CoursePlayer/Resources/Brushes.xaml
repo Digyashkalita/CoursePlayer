@@ -1,0 +1,34 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        YouTube-dark palette. Kept as named brushes rather than inline colours so the
+        whole app can be retinted from one place.
+    -->
+
+    <Color x:Key="App.Color.Background">#FF0F0F0F</Color>
+    <Color x:Key="App.Color.Surface">#FF181818</Color>
+    <Color x:Key="App.Color.SurfaceRaised">#FF212121</Color>
+    <Color x:Key="App.Color.Hover">#FF272727</Color>
+    <Color x:Key="App.Color.Divider">#FF303030</Color>
+    <Color x:Key="App.Color.TextPrimary">#FFF1F1F1</Color>
+    <Color x:Key="App.Color.TextSecondary">#FFAAAAAA</Color>
+    <Color x:Key="App.Color.TextDisabled">#FF717171</Color>
+    <Color x:Key="App.Color.Accent">#FFFF0033</Color>
+    <Color x:Key="App.Color.AccentDim">#FFCC0029</Color>
+    <Color x:Key="App.Color.Warning">#FFFFC107</Color>
+
+    <SolidColorBrush x:Key="App.Brush.Background" Color="{StaticResource App.Color.Background}" />
+    <SolidColorBrush x:Key="App.Brush.Surface" Color="{StaticResource App.Color.Surface}" />
+    <SolidColorBrush x:Key="App.Brush.SurfaceRaised" Color="{StaticResource App.Color.SurfaceRaised}" />
+    <SolidColorBrush x:Key="App.Brush.Hover" Color="{StaticResource App.Color.Hover}" />
+    <SolidColorBrush x:Key="App.Brush.Divider" Color="{StaticResource App.Color.Divider}" />
+    <SolidColorBrush x:Key="App.Brush.TextPrimary" Color="{StaticResource App.Color.TextPrimary}" />
+    <SolidColorBrush x:Key="App.Brush.TextSecondary" Color="{StaticResource App.Color.TextSecondary}" />
+    <SolidColorBrush x:Key="App.Brush.TextDisabled" Color="{StaticResource App.Color.TextDisabled}" />
+    <SolidColorBrush x:Key="App.Brush.Accent" Color="{StaticResource App.Color.Accent}" />
+    <SolidColorBrush x:Key="App.Brush.AccentDim" Color="{StaticResource App.Color.AccentDim}" />
+    <SolidColorBrush x:Key="App.Brush.Warning" Color="{StaticResource App.Color.Warning}" />
+    <SolidColorBrush x:Key="App.Brush.Transparent" Color="Transparent" />
+
+</ResourceDictionary>

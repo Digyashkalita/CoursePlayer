@@ -1,0 +1,35 @@
+<UserControl x:Class="CoursePlayer.Views.RecentView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:viewModels="clr-namespace:CoursePlayer.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=viewModels:RecentViewModel}"
+             Background="{DynamicResource App.Brush.Background}"
+             Foreground="{DynamicResource App.Brush.TextPrimary}"
+             FontFamily="Segoe UI">
+
+    <Grid Margin="32,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource App.Text.PageTitle}" />
+
+        <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center">
+            <materialDesign:PackIcon Kind="History"
+                                     Width="48"
+                                     Height="48"
+                                     HorizontalAlignment="Center"
+                                     Foreground="{DynamicResource App.Brush.TextDisabled}" />
+            <TextBlock Text="{Binding Placeholder}"
+                       Margin="0,14,0,0"
+                       MaxWidth="420"
+                       TextAlignment="Center"
+                       Style="{StaticResource App.Text.Body}" />
+        </StackPanel>
+    </Grid>
+</UserControl>

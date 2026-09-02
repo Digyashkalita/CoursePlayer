@@ -1,0 +1,37 @@
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+[Bb]in/
+[Oo]bj/
+*_wpftmp.csproj
+*.user
+*.suo
+.vs/
+
+# ---------------------------------------------------------------------------
+# Throwaway probe projects. These exist only to interrogate a NuGet package's
+# API surface at runtime (FFME, MaterialDesignThemes) or to poke at the SQLite
+# database directly. They are not part of the app.
+# ---------------------------------------------------------------------------
+temp_ffme_probe/
+temp_mdix_probe/
+temp_sqlite_update/
+
+# ---------------------------------------------------------------------------
+# Diagnostic scratch output: crash-dump analyses, redirected console streams,
+# screenshots. Regenerated on demand, never worth versioning.
+# ---------------------------------------------------------------------------
+dump*.txt
+probe_out.txt
+probe_err.txt
+cp_stdout.txt
+cp_stderr.txt
+shot-*.png
+
+# ---------------------------------------------------------------------------
+# Superseded one-off scripts from Phase 1
+# ---------------------------------------------------------------------------
+capture.ps1
+click.ps1
+click2.ps1
+InspectFFME.cs

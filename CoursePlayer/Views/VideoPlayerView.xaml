@@ -1,0 +1,486 @@
+<UserControl x:Class="CoursePlayer.Views.VideoPlayerView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:viewModels="clr-namespace:CoursePlayer.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=viewModels:VideoPlayerViewModel}"
+             Background="{DynamicResource App.Brush.Background}"
+             Foreground="{DynamicResource App.Brush.TextPrimary}"
+             Focusable="True"
+             IsTabStop="False">
+
+    <UserControl.InputBindings>
+        <!-- Player shortcuts. Arrow keys are handled in code-behind so they do not fight
+             the focused slider, but the rest map cleanly onto commands. -->
+        <KeyBinding Key="Space" Command="{Binding PlayPauseCommand}" />
+        <KeyBinding Key="F" Command="{Binding ToggleFullscreenCommand}" />
+        <KeyBinding Key="M" Command="{Binding ToggleMuteCommand}" />
+        <KeyBinding Key="N" Command="{Binding NextCommand}" />
+        <KeyBinding Key="P" Command="{Binding PreviousCommand}" />
+        <KeyBinding Key="C" Command="{Binding ToggleSubtitlesCommand}" />
+        <KeyBinding Key="OemOpenBrackets" Command="{Binding StepSpeedCommand}" CommandParameter="down" />
+        <KeyBinding Key="OemCloseBrackets" Command="{Binding StepSpeedCommand}" CommandParameter="up" />
+    </UserControl.InputBindings>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ===================== STAGE: video + overlays ===================== -->
+        <Grid Grid.Column="0" Background="Black">
+            <!-- The FFME element is parented here in code-behind. -->
+            <Border x:Name="VideoHost" Background="Black" />
+
+            <!-- Click-to-toggle surface. Transparent so it still gets hit-tested. -->
+            <Border Background="Transparent"
+                    MouseLeftButtonUp="OnStageClicked" />
+
+            <!-- Busy / error states sit above the video, centred. -->
+            <materialDesign:Card VerticalAlignment="Center"
+                                 HorizontalAlignment="Center"
+                                 Padding="24,16"
+                                 Background="{DynamicResource App.Brush.SurfaceRaised}"
+                                 Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}">
+                <StackPanel Orientation="Horizontal">
+                    <ProgressBar Style="{StaticResource MaterialDesignCircularProgressBar}"
+                                 IsIndeterminate="True"
+                                 Width="22"
+                                 Height="22"
+                                 Margin="0,0,12,0" />
+                    <TextBlock Text="Opening lesson..."
+                               VerticalAlignment="Center"
+                               Style="{StaticResource App.Text.Body}" />
+                </StackPanel>
+            </materialDesign:Card>
+
+            <materialDesign:Card VerticalAlignment="Center"
+                                 HorizontalAlignment="Center"
+                                 MaxWidth="420"
+                                 Padding="24,20"
+                                 Background="{DynamicResource App.Brush.SurfaceRaised}"
+                                 Visibility="{Binding ErrorMessage, Converter={StaticResource NullOrEmptyToVisibility}}">
+                <StackPanel>
+                    <materialDesign:PackIcon Kind="AlertCircleOutline"
+                                             Width="32"
+                                             Height="32"
+                                             HorizontalAlignment="Center"
+                                             Foreground="{DynamicResource App.Brush.Warning}" />
+                    <TextBlock Text="{Binding ErrorMessage}"
+                               Margin="0,12,0,0"
+                               TextAlignment="Center"
+                               Style="{StaticResource App.Text.Body}" />
+                    <Button Content="Back to course"
+                            Command="{Binding BackCommand}"
+                            Style="{StaticResource MaterialDesignFlatButton}"
+                            Margin="0,12,0,0"
+                            HorizontalAlignment="Center" />
+                </StackPanel>
+            </materialDesign:Card>
+
+            <!-- ============================ TOP BAR ============================ -->
+            <Border VerticalAlignment="Top" Padding="8,6">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Opacity" Value="1" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding AreControlsVisible}" Value="False">
+                                <DataTrigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.25" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </DataTrigger.EnterActions>
+                                <DataTrigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.15" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </DataTrigger.ExitActions>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#CC000000" Offset="0" />
+                        <GradientStop Color="#00000000" Offset="1" />
+                    </LinearGradientBrush>
+                </Border.Background>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <Button Grid.Column="0"
+                            Command="{Binding BackCommand}"
+                            Style="{StaticResource App.Player.IconButton}"
+                            ToolTip="Back to course">
+                        <materialDesign:PackIcon Kind="ArrowLeft" Width="22" Height="22" />
+                    </Button>
+
+                    <StackPanel Grid.Column="1" Margin="8,0" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding AssetTitle}"
+                                   Style="{StaticResource App.Text.Subtitle2}"
+                                   FontSize="15"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding CourseTitle}"
+                                   Style="{StaticResource App.Text.Caption}"
+                                   Foreground="{DynamicResource App.Brush.TextSecondary}"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+
+                    <Border Grid.Column="2"
+                            VerticalAlignment="Center"
+                            Margin="8,0"
+                            Padding="7,2"
+                            CornerRadius="4"
+                            Background="{DynamicResource App.Brush.Hover}"
+                            Visibility="{Binding ResolutionBadge, Converter={StaticResource NullOrEmptyToVisibility}}">
+                        <TextBlock Text="{Binding ResolutionBadge}"
+                                   FontSize="11"
+                                   FontWeight="Bold"
+                                   Foreground="{DynamicResource App.Brush.TextPrimary}" />
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- ======================= SCRUBBER + CONTROLS ======================= -->
+            <Border VerticalAlignment="Bottom" Padding="8,4,8,6">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Opacity" Value="1" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding AreControlsVisible}" Value="False">
+                                <DataTrigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.25" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </DataTrigger.EnterActions>
+                                <DataTrigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.15" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </DataTrigger.ExitActions>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#00000000" Offset="0" />
+                        <GradientStop Color="#E6000000" Offset="0.45" />
+                        <GradientStop Color="#F2000000" Offset="1" />
+                    </LinearGradientBrush>
+                </Border.Background>
+
+                <StackPanel>
+                    <!-- Scrubber: buffered track behind, seek slider on top. -->
+                    <Grid Margin="4,0,4,2">
+                        <ProgressBar Height="4"
+                                     VerticalAlignment="Center"
+                                     Minimum="0"
+                                     Maximum="1"
+                                     Value="{Binding BufferingProgress, Mode=OneWay}"
+                                     Background="#40FFFFFF"
+                                     Foreground="#66FFFFFF"
+                                     BorderThickness="0" />
+
+                        <Slider x:Name="Scrubber"
+                                Style="{StaticResource App.Player.Scrubber}"
+                                Maximum="{Binding DurationSeconds, Mode=OneWay}"
+                                Value="{Binding PositionSeconds, Mode=TwoWay}"
+                                IsEnabled="{Binding IsSeekable}"
+                                Thumb.DragStarted="OnScrubberDragStarted"
+                                Thumb.DragCompleted="OnScrubberDragCompleted"
+                                PreviewMouseLeftButtonUp="OnScrubberClicked" />
+                    </Grid>
+
+                    <!-- Bottom control row -->
+                    <Grid Margin="2,0,2,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Transport -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Command="{Binding PreviousCommand}"
+                                    Style="{StaticResource App.Player.IconButton}"
+                                    ToolTip="Previous lesson (P)">
+                                <materialDesign:PackIcon Kind="SkipPrevious" Width="22" Height="22" />
+                            </Button>
+
+                            <Button Command="{Binding RewindCommand}"
+                                    Style="{StaticResource App.Player.IconButton}"
+                                    ToolTip="Back 10 seconds">
+                                <materialDesign:PackIcon Kind="Rewind10" Width="22" Height="22" />
+                            </Button>
+
+                            <Button Command="{Binding PlayPauseCommand}"
+                                    Style="{StaticResource App.Player.IconButton}"
+                                    ToolTip="Play / pause (Space)">
+                                <materialDesign:PackIcon Kind="{Binding PlayPauseIcon}" Width="28" Height="28" />
+                            </Button>
+
+                            <Button Command="{Binding ForwardCommand}"
+                                    Style="{StaticResource App.Player.IconButton}"
+                                    ToolTip="Forward 10 seconds">
+                                <materialDesign:PackIcon Kind="FastForward10" Width="22" Height="22" />
+                            </Button>
+
+                            <Button Command="{Binding NextCommand}"
+                                    Style="{StaticResource App.Player.IconButton}"
+                                    ToolTip="Next lesson (N)">
+                                <materialDesign:PackIcon Kind="SkipNext" Width="22" Height="22" />
+                            </Button>
+
+                            <!-- Volume -->
+                            <Button Command="{Binding ToggleMuteCommand}"
+                                    Style="{StaticResource App.Player.IconButton}"
+                                    Margin="8,0,0,0"
+                                    ToolTip="Mute (M)">
+                                <materialDesign:PackIcon Kind="{Binding VolumeIcon}" Width="22" Height="22" />
+                            </Button>
+
+                            <Slider Style="{StaticResource App.Player.VolumeSlider}"
+                                    Maximum="100"
+                                    Value="{Binding VolumePercent, Mode=TwoWay}"
+                                    VerticalAlignment="Center"
+                                    ToolTip="Volume" />
+
+                            <!-- Clock -->
+                            <TextBlock VerticalAlignment="Center"
+                                       Margin="14,0,0,0"
+                                       FontSize="13"
+                                       Foreground="{DynamicResource App.Brush.TextPrimary}">
+                                <Run Text="{Binding PositionText, Mode=OneWay}" />
+                                <Run Text=" / " Foreground="{DynamicResource App.Brush.TextSecondary}" />
+                                <Run Text="{Binding DurationText, Mode=OneWay}" Foreground="{DynamicResource App.Brush.TextSecondary}" />
+                            </TextBlock>
+                        </StackPanel>
+
+                        <!-- Right-hand controls -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <!-- Speed -->
+                            <ComboBox ItemsSource="{Binding SpeedOptions}"
+                                      SelectedItem="{Binding SelectedSpeed, Mode=TwoWay}"
+                                      DisplayMemberPath="Label"
+                                      Width="72"
+                                      VerticalAlignment="Center"
+                                      Foreground="{DynamicResource App.Brush.TextPrimary}"
+                                      ToolTip="Playback speed ([ and ])" />
+
+                            <!-- Subtitles -->
+                            <Button Command="{Binding ToggleSubtitlesCommand}"
+                                    Style="{StaticResource App.Player.IconButton}"
+                                    IsEnabled="{Binding HasSubtitles}"
+                                    Margin="6,0,0,0"
+                                    ToolTip="Subtitles (C)">
+                                <materialDesign:PackIcon Width="22" Height="22">
+                                    <materialDesign:PackIcon.Style>
+                                        <Style TargetType="materialDesign:PackIcon">
+                                            <Setter Property="Kind" Value="ClosedCaption" />
+                                            <Setter Property="Foreground" Value="{DynamicResource App.Brush.Accent}" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding AreSubtitlesEnabled}" Value="False">
+                                                    <Setter Property="Kind" Value="ClosedCaptionOutline" />
+                                                    <Setter Property="Foreground" Value="{DynamicResource App.Brush.TextPrimary}" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </materialDesign:PackIcon.Style>
+                                </materialDesign:PackIcon>
+                            </Button>
+
+                            <!-- Playlist -->
+                            <Button Command="{Binding TogglePlaylistCommand}"
+                                    Style="{StaticResource App.Player.IconButton}"
+                                    ToolTip="Course playlist">
+                                <materialDesign:PackIcon Kind="PlaylistPlay" Width="22" Height="22" />
+                            </Button>
+
+                            <!-- Fullscreen -->
+                            <Button Command="{Binding ToggleFullscreenCommand}"
+                                    Style="{StaticResource App.Player.IconButton}"
+                                    ToolTip="Fullscreen (F)">
+                                <materialDesign:PackIcon Width="22" Height="22">
+                                    <materialDesign:PackIcon.Style>
+                                        <Style TargetType="materialDesign:PackIcon">
+                                            <Setter Property="Kind" Value="Fullscreen" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsFullscreen}" Value="True">
+                                                    <Setter Property="Kind" Value="FullscreenExit" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </materialDesign:PackIcon.Style>
+                                </materialDesign:PackIcon>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- ========================= PLAYLIST PANEL ========================= -->
+        <Border Grid.Column="1"
+                Width="320"
+                Background="{DynamicResource App.Brush.Surface}"
+                BorderBrush="{DynamicResource App.Brush.Divider}"
+                BorderThickness="1,0,0,0"
+                Visibility="{Binding IsPlaylistVisible, Converter={StaticResource BoolToVisibility}}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Margin="16,14,8,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Up next" Style="{StaticResource App.Text.Subtitle2}" />
+                        <TextBlock Text="{Binding CourseTitle}"
+                                   Style="{StaticResource App.Text.Caption}"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+
+                    <Button Grid.Column="1"
+                            Command="{Binding TogglePlaylistCommand}"
+                            Style="{StaticResource App.Player.IconButton}"
+                            ToolTip="Hide playlist">
+                        <materialDesign:PackIcon Kind="ChevronRight" Width="20" Height="20" />
+                    </Button>
+                </Grid>
+
+                <!-- Virtualized: courses can hold thousands of clips. -->
+                <ListBox Grid.Row="1"
+                         ItemsSource="{Binding Playlist}"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         HorizontalContentAlignment="Stretch"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0" />
+                            <Setter Property="Background" Value="Transparent" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <ContentPresenter />
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource App.Player.PlaylistItem}"
+                                    Cursor="Hand"
+                                    ToolTip="{Binding Title}">
+                                <Border.InputBindings>
+                                    <MouseBinding MouseAction="LeftClick"
+                                                  Command="{Binding DataContext.OpenPlaylistItemCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                                  CommandParameter="{Binding}" />
+                                </Border.InputBindings>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <materialDesign:PackIcon Grid.Column="0"
+                                                             Kind="{Binding Icon}"
+                                                             Width="18"
+                                                             Height="18"
+                                                             VerticalAlignment="Center"
+                                                             Margin="0,0,10,0"
+                                                             Foreground="{DynamicResource App.Brush.TextSecondary}" />
+
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Title}"
+                                                   FontSize="13"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{DynamicResource App.Brush.TextPrimary}">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                                            <Setter Property="FontWeight" Value="SemiBold" />
+                                                            <Setter Property="Foreground" Value="{DynamicResource App.Brush.Accent}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding IsOnline}" Value="False">
+                                                            <Setter Property="Foreground" Value="{DynamicResource App.Brush.TextDisabled}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding DurationText}"
+                                                       Style="{StaticResource App.Text.Caption}"
+                                                       Visibility="{Binding DurationText, Converter={StaticResource NullOrEmptyToVisibility}}" />
+                                            <TextBlock Text="file missing"
+                                                       Style="{StaticResource App.Text.Caption}"
+                                                       Foreground="{DynamicResource App.Brush.Warning}"
+                                                       Margin="6,0,0,0"
+                                                       Visibility="{Binding IsOnline, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <materialDesign:PackIcon Grid.Column="2"
+                                                             Kind="CheckCircle"
+                                                             Width="16"
+                                                             Height="16"
+                                                             VerticalAlignment="Center"
+                                                             Margin="8,0,0,0"
+                                                             Foreground="{DynamicResource App.Brush.Accent}"
+                                                             Visibility="{Binding IsCompleted, Converter={StaticResource BoolToVisibility}}" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <!-- Re-open handle, shown only while the panel is hidden. -->
+        <Button Grid.Column="1"
+                Command="{Binding TogglePlaylistCommand}"
+                Style="{StaticResource App.Player.IconButton}"
+                VerticalAlignment="Top"
+                Margin="0,10,6,0"
+                ToolTip="Show playlist"
+                Visibility="{Binding IsPlaylistVisible, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}">
+            <materialDesign:PackIcon Kind="PlaylistPlay" Width="22" Height="22" />
+        </Button>
+    </Grid>
+</UserControl>

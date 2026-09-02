@@ -1,0 +1,147 @@
+<UserControl x:Class="CoursePlayer.Views.CourseDetailView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:viewModels="clr-namespace:CoursePlayer.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=viewModels:CourseDetailViewModel}"
+             Background="{DynamicResource App.Brush.Background}"
+             Foreground="{DynamicResource App.Brush.TextPrimary}">
+
+    <Grid Margin="32,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="{Binding CourseTitle}"
+                   Style="{StaticResource App.Text.PageTitle}"
+                   Margin="0,0,0,20" />
+
+        <!-- Error message -->
+        <Border Grid.Row="1"
+                VerticalAlignment="Top"
+                Background="#332F2F2F"
+                CornerRadius="10"
+                Padding="16,12"
+                Visibility="{Binding ErrorMessage, Converter={StaticResource NullOrEmptyToVisibility}}">
+            <StackPanel Orientation="Horizontal">
+                <materialDesign:PackIcon Kind="AlertCircleOutline"
+                                         Width="20"
+                                         Height="20"
+                                         VerticalAlignment="Center"
+                                         Foreground="{DynamicResource App.Brush.Warning}" />
+                <TextBlock Text="{Binding ErrorMessage}"
+                           Margin="10,0,0,0"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource App.Text.Body}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Course info -->
+        <StackPanel Grid.Row="1"
+                    Margin="0,0,0,24">
+            <TextBlock Text="{Binding FolderPath}"
+                       Style="{StaticResource App.Text.Body}"
+                       Opacity="0.7" />
+            <TextBlock Text="{Binding Summary}"
+                       Style="{StaticResource App.Text.Body}"
+                       Margin="0,8,0,0" />
+        </StackPanel>
+
+        <!-- Sections and assets -->
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding Sections}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type viewModels:CourseSectionViewModel}">
+                        <StackPanel Margin="0,0,0,24">
+                            <TextBlock Text="{Binding Name}"
+                                       Style="{StaticResource App.Text.Subtitle2}"
+                                       Margin="0,0,0,8" />
+                            <ItemsControl ItemsSource="{Binding Assets}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type viewModels:CourseAssetViewModel}">
+                                        <Border CornerRadius="4"
+                                                Padding="12"
+                                                Background="{DynamicResource App.Brush.Surface}"
+                                                Margin="0,4,0,0">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+
+                                                <!-- Icon -->
+                                                <materialDesign:PackIcon Grid.Column="0"
+                                                                       Kind="{Binding Icon}"
+                                                                       Width="24"
+                                                                       Height="24"
+                                                                       Margin="0,0,12,0"
+                                                                       VerticalAlignment="Center"
+                                                                       Foreground="{DynamicResource App.Brush.TextPrimary}" />
+
+                                                <!-- Details -->
+                                                <StackPanel Grid.Column="1"
+                                                            VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Title}"
+                                                               Style="{StaticResource App.Text.Body}"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                    <StackPanel Orientation="Horizontal"
+                                                                Margin="0,4,0,0"
+                                                                >
+                                                        <TextBlock Text="{Binding Duration}"
+                                                                   Style="{StaticResource App.Text.Body}"
+                                                                   Visibility="{Binding Duration, Converter={StaticResource NullOrEmptyToVisibility}}" />
+                                                        <TextBlock Text="{Binding Resolution}" Margin="4,0,4,0"
+                                                                   Style="{StaticResource App.Text.Body}"
+                                                                   Visibility="{Binding Resolution, Converter={StaticResource NullOrEmptyToVisibility}}" />
+                                                    </StackPanel>
+                                                </StackPanel>
+
+                                                <!-- Play button -->
+                                                <Button Grid.Column="2"
+                                                        Command="{Binding DataContext.PlayVideoCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"
+                                                        Style="{StaticResource MaterialDesignIconButton}"
+                                                        ToolTip="Play">
+                                                    <materialDesign:PackIcon Kind="PlayCircleOutline" />
+                                                </Button>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Loading indicator -->
+        <materialDesign:Card Grid.Row="1"
+                             HorizontalAlignment="Center"
+                             VerticalAlignment="Center"
+                             Padding="24"
+                             Background="{DynamicResource App.Brush.SurfaceRaised}"
+                             Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}">
+            <StackPanel Orientation="Horizontal">
+                <ProgressBar Style="{StaticResource MaterialDesignCircularProgressBar}"
+                             Value="0"
+                             IsIndeterminate="True"
+                             Width="24"
+                             Height="24" />
+                <TextBlock Text="Loading courseÃ¢â‚¬Â¦"
+                           Margin="12,0,0,0"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource App.Text.Body}" />
+            </StackPanel>
+        </materialDesign:Card>
+    </Grid>
+</UserControl>
+
+

@@ -1,0 +1,206 @@
+<mah:MetroWindow x:Class="CoursePlayer.Views.MainWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                 xmlns:mah="http://metro.mahapps.com/winfx/xaml/controls"
+                 xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+                 xmlns:viewModels="clr-namespace:CoursePlayer.ViewModels"
+                 mc:Ignorable="d"
+                 d:DataContext="{d:DesignInstance Type=viewModels:MainWindowViewModel}"
+                 Title="CoursePlayer"
+                 Width="1360"
+                 Height="820"
+                 MinWidth="960"
+                 MinHeight="620"
+                 WindowStartupLocation="CenterScreen"
+                 TitleCharacterCasing="Normal"
+                 Background="{DynamicResource App.Brush.Background}"
+                 Foreground="{DynamicResource App.Brush.TextPrimary}"
+                 FontFamily="Segoe UI"
+                 AllowDrop="True"
+                 DragOver="OnDragOver"
+                 Drop="OnDrop">
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ========================== SIDEBAR ========================== -->
+        <Border Grid.Column="0"
+                Width="232"
+                Background="{DynamicResource App.Brush.Background}"
+                BorderBrush="{DynamicResource App.Brush.Divider}"
+                BorderThickness="0,0,1,0">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Style.Triggers>
+                        <!-- Animating Width beats the local value, so no binding conflict. -->
+                        <DataTrigger Binding="{Binding IsSidebarExpanded}" Value="False">
+                            <DataTrigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetProperty="Width"
+                                                         To="72"
+                                                         Duration="0:0:0.18">
+                                            <DoubleAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseOut" />
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </DataTrigger.EnterActions>
+                            <DataTrigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetProperty="Width"
+                                                         To="232"
+                                                         Duration="0:0:0.18">
+                                            <DoubleAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseOut" />
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </DataTrigger.ExitActions>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- App logo / header -->
+                <Border Grid.Row="0"
+                        Height="64"
+                        Background="{DynamicResource App.Brush.Primary}"
+                        BorderBrush="{DynamicResource App.Brush.Divider}"
+                        BorderThickness="0,0,0,1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <materialDesign:PackIcon Grid.Column="0"
+                                                  Kind="Play"
+                                                  Width="32"
+                                                  Height="32"
+                                                  Margin="16,0,8,0"
+                                                  Foreground="{DynamicResource App.Brush.TextPrimary}" />
+                        <TextBlock Grid.Column="1"
+                                   Text="CoursePlayer"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource App.Brush.TextPrimary}"
+                                   Visibility="{Binding IsSidebarExpanded, Converter={StaticResource BoolToVisibility}}" />
+                    </Grid>
+                </Border>
+
+                <!-- Navigation items -->
+                <ListBox Grid.Row="1"
+                         ItemsSource="{Binding NavigationItems}"
+                         SelectedItem="{Binding SelectedNavigationItem}"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Padding="0,8,0,0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="viewModels:NavigationItem">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <materialDesign:PackIcon Grid.Column="0"
+                                                          Kind="{Binding Icon}"
+                                                          Width="24"
+                                                          Height="24"
+                                                          Margin="16,0,12,0"
+                                                          VerticalAlignment="Center"
+                                                          Foreground="{DynamicResource App.Brush.TextSecondary}" />
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding Label}"
+                                           FontSize="14"
+                                           VerticalAlignment="Center"
+                                           Foreground="{DynamicResource App.Brush.TextPrimary}"
+                                           Visibility="{Binding DataContext.IsSidebarExpanded, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}, Converter={StaticResource BoolToVisibility}}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Background" Value="Transparent" />
+                            <Setter Property="BorderThickness" Value="0" />
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Height" Value="44" />
+                            <Setter Property="Cursor" Value="Hand" />
+                            <Style.Triggers>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource App.Brush.Selected}" />
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource App.Brush.Hover}" />
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                </ListBox>
+
+                <!-- Footer: Import folder button -->
+                <Border Grid.Row="2"
+                        Background="{DynamicResource App.Brush.Background}"
+                        BorderBrush="{DynamicResource App.Brush.Divider}"
+                        BorderThickness="0,1,0,0"
+                        Padding="8,8,8,8">
+                    <Button Command="{Binding ImportFolderCommand}"
+                            Style="{StaticResource MaterialDesignFlatButton}"
+                            HorizontalAlignment="Stretch"
+                            Height="40">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <materialDesign:PackIcon Grid.Column="0"
+                                                      Kind="FolderPlus"
+                                                      Width="20"
+                                                      Height="20"
+                                                      Margin="8,0,12,0"
+                                                      VerticalAlignment="Center"
+                                                      Foreground="{DynamicResource App.Brush.TextSecondary}" />
+                            <TextBlock Grid.Column="1"
+                                       Text="Import Folder"
+                                       FontSize="13"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource App.Brush.TextPrimary}"
+                                       Visibility="{Binding IsSidebarExpanded, Converter={StaticResource BoolToVisibility}}" />
+                        </Grid>
+                    </Button>
+                </Border>
+            </Grid>
+</Border>
+        <!-- ========================== CONTENT ========================== -->
+        <Frame x:Name="ContentFrame"
+               Grid.Column="1"
+               NavigationUIVisibility="Hidden"
+               Background="{DynamicResource App.Brush.Background}" />
+
+        <!--
+            Toasts float above the content column so playback notices ("Marked as complete",
+            "Resumed at 2:14") never push the player's layout around.
+        -->
+        <materialDesign:Snackbar Grid.Column="1"
+                                 MessageQueue="{Binding MessageQueue}"
+                                 VerticalAlignment="Bottom"
+                                 HorizontalAlignment="Center"
+                                 Margin="0,0,0,72" />
+    </Grid>
+</mah:MetroWindow>
+

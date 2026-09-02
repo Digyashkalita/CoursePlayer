@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet new *)",
+      "Bash(dotnet sln *)",
+      "Bash(tasklist //FI \"IMAGENAME eq CoursePlayer.exe\" //NH)"
+    ]
+  }
+}
