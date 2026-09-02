@@ -27,6 +27,8 @@ probe_err.txt
 cp_stdout.txt
 cp_stderr.txt
 shot-*.png
+gh_auth.txt
+gh_pid.txt
 
 # ---------------------------------------------------------------------------
 # Superseded one-off scripts from Phase 1
