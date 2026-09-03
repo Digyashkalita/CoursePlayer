@@ -72,20 +72,126 @@
 
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <materialDesign:Card Width="220" Padding="0" Cursor="Hand">
+                    <materialDesign:Card Width="220" Padding="0" Cursor="Hand" ClipToBounds="True">
                         <StackPanel>
-                            <!-- Palette preview -->
+                            <!--
+                                A miniature of the app itself: caption bar, sidebar, content
+                                area and an accent chip. Bound to the palette's own colours, so
+                                each card previews exactly what selecting it produces.
+                            -->
                             <Grid Height="96">
                                 <Grid.Background>
                                     <SolidColorBrush Color="{Binding Background}" />
                                 </Grid.Background>
-                                <StackPanel Margin="14" VerticalAlignment="Center">
-</StackPanel>
-</Grid>
-</StackPanel>
-</materialDesign:Card>
-</DataTemplate>
-</ListBox.ItemTemplate>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="22" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="54" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Caption bar, spanning the full width like the real one -->
+                                <Border Grid.Row="0" Grid.ColumnSpan="2">
+                                    <Border.Background>
+                                        <SolidColorBrush Color="{Binding Chrome}" />
+                                    </Border.Background>
+                                    <StackPanel Orientation="Horizontal"
+                                                HorizontalAlignment="Right"
+                                                VerticalAlignment="Center"
+                                                Margin="0,0,8,0">
+                                        <Ellipse Width="6" Height="6" Margin="3,0">
+                                            <Ellipse.Fill>
+                                                <SolidColorBrush Color="{Binding TextSecondary}" />
+                                            </Ellipse.Fill>
+                                        </Ellipse>
+                                        <Ellipse Width="6" Height="6" Margin="3,0">
+                                            <Ellipse.Fill>
+                                                <SolidColorBrush Color="{Binding TextSecondary}" />
+                                            </Ellipse.Fill>
+                                        </Ellipse>
+                                        <Ellipse Width="6" Height="6" Margin="3,0">
+                                            <Ellipse.Fill>
+                                                <SolidColorBrush Color="{Binding TextSecondary}" />
+                                            </Ellipse.Fill>
+                                        </Ellipse>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Sidebar, with the selected row picked out -->
+                                <Border Grid.Row="1" Grid.Column="0">
+                                    <Border.Background>
+                                        <SolidColorBrush Color="{Binding Surface}" />
+                                    </Border.Background>
+                                    <StackPanel Margin="6,8,6,0">
+                                        <Border Height="9" CornerRadius="2" Margin="0,0,0,4">
+                                            <Border.Background>
+                                                <SolidColorBrush Color="{Binding Selected}" />
+                                            </Border.Background>
+                                        </Border>
+                                        <Border Height="9" CornerRadius="2" Margin="0,0,0,4" Opacity="0.5">
+                                            <Border.Background>
+                                                <SolidColorBrush Color="{Binding SurfaceRaised}" />
+                                            </Border.Background>
+                                        </Border>
+                                        <Border Height="9" CornerRadius="2" Opacity="0.5">
+                                            <Border.Background>
+                                                <SolidColorBrush Color="{Binding SurfaceRaised}" />
+                                            </Border.Background>
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Content: a course card and an accent chip -->
+                                <Grid Grid.Row="1" Grid.Column="1" Margin="8,8,8,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Border Grid.Row="0" CornerRadius="3">
+                                        <Border.Background>
+                                            <SolidColorBrush Color="{Binding SurfaceRaised}" />
+                                        </Border.Background>
+                                    </Border>
+                                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,6,0,0">
+                                        <Border Width="34" Height="10" CornerRadius="5">
+                                            <Border.Background>
+                                                <SolidColorBrush Color="{Binding Accent}" />
+                                            </Border.Background>
+                                        </Border>
+                                        <Border Width="18" Height="10" CornerRadius="5" Margin="4,0,0,0">
+                                            <Border.Background>
+                                                <SolidColorBrush Color="{Binding AccentDim}" />
+                                            </Border.Background>
+                                        </Border>
+                                        <Border Width="10" Height="10" CornerRadius="5" Margin="4,0,0,0">
+                                            <Border.Background>
+                                                <SolidColorBrush Color="{Binding Warning}" />
+                                            </Border.Background>
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+                            </Grid>
+
+                            <!-- Palette name, on the palette's own surface -->
+                            <Border Padding="12,10">
+                                <Border.Background>
+                                    <SolidColorBrush Color="{Binding Surface}" />
+                                </Border.Background>
+                                <TextBlock Text="{Binding Name}"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis">
+                                    <TextBlock.Foreground>
+                                        <SolidColorBrush Color="{Binding TextPrimary}" />
+                                    </TextBlock.Foreground>
+                                </TextBlock>
+                            </Border>
+                        </StackPanel>
+                    </materialDesign:Card>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
 </ListBox>
 </Grid>
 </UserControl>

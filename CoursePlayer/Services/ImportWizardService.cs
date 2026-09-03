@@ -21,6 +21,13 @@ public interface IImportWizardService
 /// <inheritdoc cref="IImportWizardService"/>
 public sealed class ImportWizardService : IImportWizardService
 {
+    private readonly IThemeService _theme;
+
+    public ImportWizardService(IThemeService theme)
+    {
+        _theme = theme;
+    }
+
     public Task<ImportWizardResult?> ShowAsync(ScanResult scan)
     {
         var dispatcher = Application.Current?.Dispatcher;
@@ -33,7 +40,7 @@ public sealed class ImportWizardService : IImportWizardService
         return dispatcher.InvokeAsync(() => ShowModal(scan)).Task;
     }
 
-    private static ImportWizardResult? ShowModal(ScanResult scan)
+    private ImportWizardResult? ShowModal(ScanResult scan)
     {
         var viewModel = new ImportWizardViewModel(scan);
         var window = new ImportWizardWindow
@@ -41,6 +48,10 @@ public sealed class ImportWizardService : IImportWizardService
             DataContext = viewModel,
             Owner = Application.Current?.MainWindow,
         };
+
+        // Caption colours are per-window properties, so a new window starts on the stock
+        // MahApps chrome until the palette is pushed onto it.
+        _theme.ApplyWindowChrome(window);
 
         window.ShowDialog();
         return viewModel.Result;

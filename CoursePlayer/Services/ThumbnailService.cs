@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Globalization;
+using System.Text;
 using CoursePlayer.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -95,6 +96,38 @@ public sealed class ThumbnailService : IThumbnailService
 
     /// <summary>Seek used when the duration has not been probed yet.</summary>
     private static readonly TimeSpan FallbackSeek = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Fractions of the running time sampled when choosing a cover frame. Spread across the
+    /// body of the lesson: the opening seconds are usually a black fade or a title card, and
+    /// the last moments are usually an outro.
+    /// </summary>
+    private static readonly double[] CandidateFractions = [0.12, 0.30, 0.45, 0.62, 0.80];
+
+    /// <summary>
+    /// Sampling a spread of frames only pays off once there is something to spread over.
+    /// Below this, one frame from the usual seek point is as good as it gets.
+    /// </summary>
+    private static readonly TimeSpan MinimumDurationForSampling = TimeSpan.FromSeconds(12);
+
+    /// <summary>
+    /// A frame this bright overall is a blown-out white slide, which tells the viewer nothing.
+    /// Such a frame is only used when nothing better was found.
+    /// </summary>
+    private const double MaximumUsefulLuma = 232d;
+
+    /// <summary>
+    /// A sample at or below this luma counts as dead: a letterbox bar, a pillarbox bar, or
+    /// black background baked into a screen recording.
+    /// </summary>
+    private const double DeadLumaThreshold = 12d;
+
+    /// <summary>
+    /// A frame must fill at least this much of its canvas with non-dead pixels. Screen
+    /// recordings routinely centre a narrow window on black, and such a frame scores high on
+    /// raw contrast while looking like a rendering fault on a card.
+    /// </summary>
+    private const double MinimumCoverage = 0.6d;
 
     /// <summary>
     /// Only one cover is produced at a time. Each video cover spawns an ffmpeg process, and
@@ -389,6 +422,11 @@ public sealed class ThumbnailService : IThumbnailService
     /// this without a live MediaElement, and building one per asset during an import is far
     /// too expensive, so this shells out instead.
     /// </summary>
+    /// <remarks>
+    /// A single fixed seek is unreliable: lessons routinely open on a black fade or a title
+    /// slide, which produced covers that looked broken. Several frames are sampled in one
+    /// ffmpeg pass and the most representative one wins.
+    /// </remarks>
     private async Task<bool> ExtractVideoFrameAsync(
         string videoPath,
         string targetPath,
@@ -402,8 +440,21 @@ public sealed class ThumbnailService : IThumbnailService
             return false;
         }
 
-        var seek = duration is { } known && known > TimeSpan.Zero
-            ? TimeSpan.FromSeconds(known.TotalSeconds * SeekFraction)
+        // The database leaves Duration null until the metadata probe runs, and covers are
+        // often generated first, so ask ffprobe rather than guessing at a fixed offset.
+        var known = duration is { } d && d > TimeSpan.Zero
+            ? d
+            : await ProbeDurationAsync(videoPath, cancellationToken).ConfigureAwait(false);
+
+        if (known is { } length && length >= MinimumDurationForSampling
+            && await TrySampledFrameAsync(executable, videoPath, targetPath, length, cancellationToken)
+                .ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        var seek = known is { } total && total > TimeSpan.Zero
+            ? TimeSpan.FromSeconds(total.TotalSeconds * SeekFraction)
             : FallbackSeek;
 
         var ran = await RunFFmpegAsync(
@@ -425,9 +476,242 @@ public sealed class ThumbnailService : IThumbnailService
     }
 
     /// <summary>
+    /// Extracts <see cref="CandidateFractions"/> in one ffmpeg invocation, scores each, and
+    /// promotes the winner. One process for all candidates keeps this about as cheap as the
+    /// single-frame path — the cost is dominated by process startup, not by decoding.
+    /// </summary>
+    private async Task<bool> TrySampledFrameAsync(
+        string executable,
+        string videoPath,
+        string targetPath,
+        TimeSpan duration,
+        CancellationToken cancellationToken)
+    {
+        var workspace = Path.Combine(
+            Path.GetDirectoryName(targetPath) ?? Path.GetTempPath(),
+            "candidates");
+
+        try
+        {
+            Directory.CreateDirectory(workspace);
+
+            var candidates = new List<string>(CandidateFractions.Length);
+            var arguments = new StringBuilder("-hide_banner -loglevel error -nostdin -y");
+
+            foreach (var fraction in CandidateFractions)
+            {
+                var at = TimeSpan.FromSeconds(duration.TotalSeconds * fraction);
+                arguments.Append(" -ss ")
+                    .Append(at.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture))
+                    .Append(" -i \"")
+                    .Append(videoPath)
+                    .Append('"');
+            }
+
+            for (var i = 0; i < CandidateFractions.Length; i++)
+            {
+                var candidate = Path.Combine(workspace, $"c{i}.jpg");
+                candidates.Add(candidate);
+
+                arguments.Append(" -map ")
+                    .Append(i)
+                    .Append(":v -frames:v 1 -vf \"")
+                    .Append(ScaleFilter)
+                    .Append("\" -q:v 4 \"")
+                    .Append(candidate)
+                    .Append('"');
+            }
+
+            // A partial result is fine: as long as one candidate landed, a cover can be picked.
+            await RunFFmpegAsync(executable, arguments.ToString(), cancellationToken).ConfigureAwait(false);
+
+            var best = PickBestCandidate(candidates);
+            if (best is null)
+            {
+                return false;
+            }
+
+            File.Copy(best, targetPath, overwrite: true);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Frame sampling failed for {Path}; falling back to a single seek.", videoPath);
+            return false;
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(workspace))
+                {
+                    Directory.Delete(workspace, recursive: true);
+                }
+            }
+            catch
+            {
+                // Leftover candidates are harmless; they sit inside the asset's own cache folder.
+            }
+        }
+    }
+
+    /// <summary>
+    /// Picks the most representative candidate. Frames that only fill a sliver of their canvas
+    /// are rejected first — a screen recording often centres a narrow window on black, and such
+    /// a frame reads as a rendering fault on a card no matter how much contrast it carries.
+    /// Among frames that do fill the canvas, the one with the most visual detail wins. Falls
+    /// back to the best of a bad set rather than giving up, since any frame beats no cover.
+    /// </summary>
+    private static string? PickBestCandidate(IReadOnlyList<string> candidates)
+    {
+        string? best = null;
+        var bestScore = double.MinValue;
+
+        foreach (var candidate in candidates)
+        {
+            if (!File.Exists(candidate)
+                || !TryMeasure(candidate, out var luma, out var detail, out var coverage))
+            {
+                continue;
+            }
+
+            // Detail carries the ranking. Deliberately no lower bound on luma: a lesson
+            // recorded against a dark IDE or editor is legitimately dark, and penalising that
+            // would hand the cover to whichever frame happened to flash a white slide.
+            var score = detail;
+
+            if (coverage < MinimumCoverage || luma > MaximumUsefulLuma)
+            {
+                score -= 1000d;
+            }
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = candidate;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// Measures one candidate over a 32x18 reduction: mean luma, the spread of its live pixels,
+    /// and how much of the canvas is live at all. Small enough that reading pixels one at a
+    /// time costs nothing, and enough signal to separate a fade from a real shot and a
+    /// full-frame shot from a narrow window floating on black.
+    /// </summary>
+    private static bool TryMeasure(
+        string imagePath,
+        out double luma,
+        out double detail,
+        out double coverage)
+    {
+        luma = 0d;
+        detail = 0d;
+        coverage = 0d;
+
+        try
+        {
+            // Read through memory so no file handle is left on the candidate.
+            var bytes = File.ReadAllBytes(imagePath);
+            using var stream = new MemoryStream(bytes, writable: false);
+            using var image = Image.FromStream(stream);
+
+            const int width = 32;
+            const int height = 18;
+
+            using var reduced = new Bitmap(width, height);
+            using (var graphics = Graphics.FromImage(reduced))
+            {
+                graphics.InterpolationMode = InterpolationMode.HighQualityBilinear;
+                graphics.DrawImage(image, 0, 0, width, height);
+            }
+
+            var samples = new double[width * height];
+            var index = 0;
+
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    var pixel = reduced.GetPixel(x, y);
+                    samples[index++] = (0.2126 * pixel.R) + (0.7152 * pixel.G) + (0.0722 * pixel.B);
+                }
+            }
+
+            luma = samples.Average();
+
+            // Letterbox bars and black backdrop are excluded from the detail figure, otherwise
+            // the bar-to-picture edge alone would score as enormous contrast.
+            var live = samples.Where(sample => sample > DeadLumaThreshold).ToArray();
+            coverage = (double)live.Length / samples.Length;
+
+            if (live.Length < 8)
+            {
+                // Essentially an empty frame: no meaningful detail to report.
+                return true;
+            }
+
+            var mean = live.Average();
+            var variance = live.Sum(sample => (sample - mean) * (sample - mean)) / live.Length;
+            detail = Math.Sqrt(variance);
+            return true;
+        }
+        catch (Exception)
+        {
+            // Unreadable or half-written candidate: simply not a contender.
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Asks ffprobe how long the file is. Returns null when ffprobe is missing or the file
+    /// has no usable duration, which sends the caller to its fixed-offset fallback.
+    /// </summary>
+    private async Task<TimeSpan?> ProbeDurationAsync(string videoPath, CancellationToken cancellationToken)
+    {
+        var executable = Path.Combine(_paths.FFmpegDirectory, "ffprobe.exe");
+        if (!File.Exists(executable))
+        {
+            return null;
+        }
+
+        var arguments = "-v error -show_entries format=duration " +
+                        $"-of default=nw=1:nk=1 \"{videoPath}\"";
+
+        var (ok, output) = await RunProcessAsync(executable, arguments, cancellationToken).ConfigureAwait(false);
+        if (!ok)
+        {
+            return null;
+        }
+
+        var text = output.Trim();
+        if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds)
+            && seconds > 0
+            && !double.IsInfinity(seconds))
+        {
+            return TimeSpan.FromSeconds(seconds);
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// scale with force_original_aspect_ratio=decrease then pad centres the frame inside a
     /// fixed 16:9 canvas, so a portrait or 4:3 lesson is letterboxed instead of stretched.
-    /// -ss before -i seeks by keyframe, which is far cheaper than decoding up to the mark.
+    /// </summary>
+    private static string ScaleFilter =>
+        $"scale={ThumbnailWidth}:{ThumbnailHeight}:force_original_aspect_ratio=decrease," +
+        $"pad={ThumbnailWidth}:{ThumbnailHeight}:(ow-iw)/2:(oh-ih)/2:color=black";
+
+    /// <summary>
+    /// Single-frame extraction. -ss before -i seeks by keyframe, which is far cheaper than
+    /// decoding up to the mark.
     /// </summary>
     private static string BuildFrameArguments(string videoPath, string targetPath, TimeSpan? seek)
     {
@@ -438,12 +722,20 @@ public sealed class ThumbnailService : IThumbnailService
         return "-hide_banner -loglevel error -nostdin -y " +
                seekArgument +
                $"-i \"{videoPath}\" -frames:v 1 " +
-               $"-vf \"scale={ThumbnailWidth}:{ThumbnailHeight}:force_original_aspect_ratio=decrease," +
-               $"pad={ThumbnailWidth}:{ThumbnailHeight}:(ow-iw)/2:(oh-ih)/2:color=black\" " +
+               $"-vf \"{ScaleFilter}\" " +
                $"-q:v 4 \"{targetPath}\"";
     }
 
     private async Task<bool> RunFFmpegAsync(
+        string executable,
+        string arguments,
+        CancellationToken cancellationToken)
+    {
+        var (ok, _) = await RunProcessAsync(executable, arguments, cancellationToken).ConfigureAwait(false);
+        return ok;
+    }
+
+    private async Task<(bool Ok, string Output)> RunProcessAsync(
         string executable,
         string arguments,
         CancellationToken cancellationToken)
@@ -463,7 +755,7 @@ public sealed class ThumbnailService : IThumbnailService
 
         if (!process.Start())
         {
-            return false;
+            return (false, string.Empty);
         }
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -479,9 +771,9 @@ public sealed class ThumbnailService : IThumbnailService
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning("ffmpeg timed out generating a cover; killing it.");
+            _logger.LogWarning("{Tool} timed out generating a cover; killing it.", Path.GetFileName(executable));
             TryKill(process);
-            return false;
+            return (false, string.Empty);
         }
         catch (OperationCanceledException)
         {
@@ -490,18 +782,19 @@ public sealed class ThumbnailService : IThumbnailService
         }
 
         var error = await stderr.ConfigureAwait(false);
-        await stdout.ConfigureAwait(false);
+        var output = await stdout.ConfigureAwait(false);
 
         if (process.ExitCode != 0)
         {
             _logger.LogDebug(
-                "ffmpeg exited {ExitCode} generating a cover: {Error}",
+                "{Tool} exited {ExitCode} generating a cover: {Error}",
+                Path.GetFileName(executable),
                 process.ExitCode,
                 error.Trim());
-            return false;
+            return (false, output);
         }
 
-        return true;
+        return (true, output);
     }
 
     private static void TryKill(Process process)

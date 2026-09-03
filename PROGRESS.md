@@ -18,6 +18,7 @@ phase and whenever a hard-won environment fact is discovered.
 | 3 | Home & Navigation — course grid, course detail, navigation service | Complete |
 | 4 | Video Player — full YouTube-style player chrome | Complete (one known upstream crash, see below) |
 | 5 | Thumbnails — cover art for courses, lessons, and playlist rows | Complete |
+| — | Post-Phase-5 fixes — card clipping, default theme, title-bar colour | Complete |
 | 6 | Documents (PDF/DOCX viewers) | Not started |
 | 7 | Polish | Not started |
 
@@ -385,6 +386,135 @@ Reproduction: `. D:\vs_code\harsh.ps1; Invoke-HarshTrials -Count 2 -Switches 15 
   72×40 covers in the player playlist.
 - Restart with a warm cache rewrites 0 files and still renders 22 covers.
 - Clean log across the whole flow: no `ERR`, no `FTL`, no non-FFME `WRN`.
+
+---
+
+## Post-Phase-5 fixes (three user observations)
+
+Three defects reported after Phase 5 and fixed before starting Phase 6.
+
+### 1. Broken course thumbnail on Home
+
+Two independent causes, both fixed.
+
+**Layout (the visible break).** The card was a chromeless `Button` whose
+`Template` was overridden to a bare `ContentPresenter` — but overriding
+`Template` does not escape the rest of the implicit style. MahApps'
+`Controls.xaml` supplies an implicit `Style` for `Button` that sets
+**`Height = 32`**, so the whole 293-px card was clipped to a 32-px strip: only
+the top ~16 rows of the 157-px cover ever painted, and the `materialDesign:Card`
+background (`#2F2F34`) never appeared at all. Confirmed by loading the same
+dictionary set in a throwaway probe app and walking
+`app.TryFindResource(typeof(Button))` → `BasedOn` chain.
+Fix: `Style="{x:Null}"` on the card button (plus explicit `Background`,
+`BorderThickness`, `Padding`, `VerticalAlignment`), which opts out of the
+implicit style entirely. UIA now reports the card button as `296x293` instead of
+`296x32`, all 157 cover rows paint, and `#2F2F34` is present.
+
+**Frame selection (the poor cover).** A single seek at 10 % of the duration
+landed on a near-black intro on the test course. `ExtractVideoFrameAsync` now
+probes the duration with `ffprobe` when the DB has none (every row in the test
+data has `NULL` duration), then samples five candidates at
+`0.12 / 0.30 / 0.45 / 0.62 / 0.80` of the running time in **one** ffmpeg
+invocation (repeat `-ss T -i FILE` per candidate, then `-map N:v -frames:v 1`
+per output) and scores them. Five candidates cost the same wall time as one,
+because process startup dominates.
+
+Scoring, after two iterations:
+
+- Detail = standard deviation of **live** samples only (luma > 12), measured on a
+  32×18 reduction. Letterbox and pillarbox bars are excluded, otherwise the
+  bar-to-picture edge alone scores as enormous contrast.
+- Coverage = fraction of live samples. A candidate below **0.6** is pushed down
+  by 1000. This is the important guard: the first version picked a frame that was
+  a narrow bright window pillarboxed on black (coverage 0.34, detail 75) which
+  looked like a rendering fault on the card. The runner-up (coverage 0.83,
+  detail 32) is a real full-frame shot.
+- There is deliberately **no lower bound on mean luma**. A lesson recorded
+  against a dark IDE is legitimately dark; penalising that hands the cover to
+  whichever frame flashed a white slide.
+- A mean above 232 (blown-out white slide) is also pushed down by 1000.
+- Every penalty is a subtraction, never a rejection, so a bad set still yields a
+  cover — any frame beats no cover.
+
+Candidates are written to a `candidates` subfolder of the asset's own cache
+directory and the winner is copied over `cover.jpg`; the `finally` block deletes
+the folder (verified: 0 leftover `candidates` directories after a full sweep).
+
+### 2. No default theme on restart
+
+`ThemeService.Initialize()` now resolves the saved id, then a new
+`DefaultPaletteId = "graphite"` constant, then the `Graphite` palette object —
+so a missing or unknown `settings.json` still lands on a deliberate default
+instead of whatever happened to be first. `Resources/Brushes.xaml` was rewritten
+to the literal Graphite values so the **first painted frame** already matches the
+default palette; a comment marks them as needing to stay in sync with
+`ThemeService.Graphite`.
+
+`Brushes.xaml` also gained the two keys that were referenced but never defined:
+`App.Color.Primary` / `App.Brush.Primary` (`#FF26262A`) and
+`App.Color.Selected` / `App.Brush.Selected` (`#FF323C3C`), used by
+`MainWindow.xaml` lines 83 and 146.
+
+### 3. Red title bar with a themed body
+
+MahApps caption colours are **per-window properties**, not resource lookups, so
+retinting brushes never reached them. `IThemeService` gained
+`ApplyWindowChrome(Window)`, and a private `ApplyChrome(MetroWindow, ThemePalette)`
+sets `WindowTitleBrush` / `NonActiveWindowTitleBrush` to the palette's `Chrome`,
+`TitleForeground` / `OverrideDefaultWindowCommandsBrush` to `TextPrimary`, and
+`GlowBrush` / `NonActiveGlowBrush` to `Divider`. `ApplyPalette` loops
+`app.Windows` so a live theme switch repaints open windows;
+`App.OnStartup` calls it once before `window.Show()`, and
+`ImportWizardService` (now an instance service with `IThemeService` injected)
+calls it before `ShowDialog()`.
+
+`App.xaml` also moved from `Dark.Red.xaml` to `Dark.Steel.xaml` and
+`BundledTheme BaseTheme="Dark" PrimaryColor="BlueGrey" SecondaryColor="Teal"`, so
+even the pre-`Initialize()` frame is not red.
+
+`ThemePalette` gained computed `Chrome => Surface` and
+`Selected => Mix(SurfaceRaised, Accent, 0.35)`.
+
+**Design decision:** the title bar is deliberately the chrome colour (= `Surface`),
+not the accent. A coloured caption band made the window look like a different app
+from its body; the accent belongs on interactive controls.
+
+### Verified working
+
+- Card button UIA rect `296x293`; all 157 cover rows painted; `#2F2F34` present.
+- Cold cache: 1 asset cover + 1 course cover on Home; opening the course wrote
+  22 covers (8 videos + 14 PDFs) with 0 leftover `candidates` folders. All 8
+  96×54 lesson thumbnails paint content in the detail view.
+- The selected cover for `1-Watch this first.mp4` moved from mean 22 / detail 10
+  (near-black) to mean 19 / coverage 0.81 / detail 13.6 — a real full-frame shot.
+- Pixel samples on the live window: title bar left/middle/right and both
+  caption-button areas all `#26262A` (Graphite `Surface`); sidebar body and
+  content background `#1E1E20` (Graphite `Background`). No red anywhere.
+- Settings palette cards render their mini-app previews: `#5E8B7E`, `#4C7267`,
+  `#D8A657`, `#2F2F34`, `#26262A`, `#1C2029`, `#0F0F0F` all present.
+- Startup log: `Applied theme Graphite.` Build clean, 0 warnings, 0 errors.
+
+### Environment facts learned
+
+- **MahApps `Controls.xaml` sets an implicit `Button` style with `Height = 32`
+  and `Padding = 16,4,16,4`.** Any control that hosts tall content inside a
+  `Button` needs `Style="{x:Null}"`; overriding only `Template` is not enough.
+- Reflecting over `MahApps.Metro.dll` / `MaterialDesignColors.dll` with
+  `Assembly.LoadFrom` + `GetTypes()` throws `ReflectionTypeLoadException`.
+  Working alternatives: read `lib\netcoreapp3.1\MahApps.Metro.xml` with
+  `Select-String`, enumerate BAML names via
+  `GetManifestResourceStream("MahApps.Metro.g.resources")` +
+  `System.Resources.ResourceReader`, or build a throwaway console app that merges
+  the real dictionaries and inspects `TryFindResource` at runtime.
+- `BundledTheme SecondaryColor="BlueGrey"` is invalid (`FormatException`);
+  secondary requires an accent swatch. A bad value throws inside
+  `App.InitializeComponent()`, so the Serilog log shows a *clean* startup —
+  diagnose it with `Start-Process -PassThru -RedirectStandardError` and read the
+  stderr file.
+- ffmpeg's `metadata=print:file=` rejects Windows paths (the drive colon parses
+  as a filter separator). For image analysis use
+  `-vf scale=WxH -pix_fmt gray -f rawvideo` and compute statistics in the host.
 
 ---
 

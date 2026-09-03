@@ -22,7 +22,33 @@ public sealed record ThemePalette(
     Color TextDisabled,
     Color Accent,
     Color AccentDim,
-    Color Warning);
+    Color Warning)
+{
+    /// <summary>
+    /// The chrome that frames the app: the window title bar and the sidebar header. Derived
+    /// from <see cref="Surface"/> so the caption bar reads as part of the app rather than as
+    /// a coloured band across the top.
+    /// </summary>
+    public Color Chrome => Surface;
+
+    /// <summary>
+    /// The selected navigation row — the raised surface with a hint of accent stirred in, so
+    /// selection is legible without shouting.
+    /// </summary>
+    public Color Selected => Mix(SurfaceRaised, Accent, 0.35);
+
+    /// <summary>Linear blend of two colors; <paramref name="amount"/> is how much of <paramref name="b"/> to take.</summary>
+    private static Color Mix(Color a, Color b, double amount)
+    {
+        byte Channel(byte from, byte to) => (byte)Math.Clamp(Math.Round(from + ((to - from) * amount)), 0, 255);
+
+        return Color.FromArgb(
+            byte.MaxValue,
+            Channel(a.R, b.R),
+            Channel(a.G, b.G),
+            Channel(a.B, b.B));
+    }
+}
 
 /// <summary>
 /// Swaps the app's color palette at runtime. Every view references brushes as
@@ -40,11 +66,21 @@ public interface IThemeService
 
     /// <summary>Applies a palette live and persists the choice.</summary>
     void SelectPalette(ThemePalette palette);
+
+    /// <summary>
+    /// Paints one window's MahApps caption bar with the current palette. Called as each
+    /// window is created, because the title bar is a per-window property rather than a
+    /// resource lookup, so a palette applied earlier cannot reach it.
+    /// </summary>
+    void ApplyWindowChrome(Window window);
 }
 
 /// <inheritdoc cref="IThemeService"/>
 public sealed class ThemeService : IThemeService
 {
+    /// <summary>The palette used when nothing has been saved yet.</summary>
+    private const string DefaultPaletteId = "graphite";
+
     private static Color C(string hex) => (Color)ColorConverter.ConvertFromString(hex)!;
 
     /// <summary>Perceived luminance (0..1) of a color, used to pick a readable foreground.</summary>
@@ -123,7 +159,13 @@ public sealed class ThemeService : IThemeService
     public void Initialize()
     {
         var savedId = _settings.Current.ThemeId;
-        var palette = Palettes.FirstOrDefault(p => p.Id == savedId) ?? Graphite;
+
+        // A missing or unrecognised id means a first run, so fall back to the documented
+        // default rather than to whatever happens to be first in the list.
+        var palette = Palettes.FirstOrDefault(p => p.Id == savedId)
+            ?? Palettes.FirstOrDefault(p => p.Id == DefaultPaletteId)
+            ?? Graphite;
+
         ApplyPalette(palette);
     }
 
@@ -131,6 +173,38 @@ public sealed class ThemeService : IThemeService
     {
         ApplyPalette(palette);
         _settings.Save(_settings.Current with { ThemeId = palette.Id });
+    }
+
+    public void ApplyWindowChrome(Window window)
+    {
+        if (window is MahApps.Metro.Controls.MetroWindow metro)
+        {
+            ApplyChrome(metro, Current);
+        }
+    }
+
+    /// <summary>
+    /// Paints a MetroWindow's caption bar. The title bar is deliberately the same colour as
+    /// the sidebar header instead of the accent: the accent belongs on controls the user acts
+    /// on, and a coloured band across the top made the window look like a different app from
+    /// its own body.
+    /// </summary>
+    private static void ApplyChrome(MahApps.Metro.Controls.MetroWindow metro, ThemePalette palette)
+    {
+        var chrome = new SolidColorBrush(palette.Chrome);
+        var title = new SolidColorBrush(palette.TextPrimary);
+
+        metro.WindowTitleBrush = chrome;
+        metro.NonActiveWindowTitleBrush = chrome;
+        metro.TitleForeground = title;
+
+        // Without this the caption glyphs keep the stock theme's foreground, which is chosen
+        // to contrast with the accent, not with the chrome.
+        metro.OverrideDefaultWindowCommandsBrush = title;
+
+        // The thin resize border around the window.
+        metro.GlowBrush = new SolidColorBrush(palette.Divider);
+        metro.NonActiveGlowBrush = new SolidColorBrush(palette.Divider);
     }
 
     private void ApplyPalette(ThemePalette palette)
@@ -159,6 +233,8 @@ public sealed class ThemeService : IThemeService
                     ["App.Brush.Accent"] = palette.Accent,
                     ["App.Brush.AccentDim"] = palette.AccentDim,
                     ["App.Brush.Warning"] = palette.Warning,
+                    ["App.Brush.Primary"] = palette.Chrome,
+                    ["App.Brush.Selected"] = palette.Selected,
                 };
 
                 // Always replace the entry with a fresh, mutable brush. The XAML references
@@ -170,48 +246,74 @@ public sealed class ThemeService : IThemeService
                     app.Resources[key] = new SolidColorBrush(color);
                 }
 
-                // Also update MahApps accent brushes so window chrome (title bar, etc.) follows the palette.
-                // MahApps 2.4 exposes its accent under "MahApps.Brushes.*" (the old AccentColorBrush keys are gone).
+                // Retint the MahApps chrome too. Its stock theme dictionary ships a fixed
+                // accent, and anything it draws — the caption bar, focus rings, selection
+                // highlights — would otherwise keep that colour while the body changed.
                 try
                 {
-                    var contrasting = ContrastingForeground(palette.Accent);
-                    var contrastingBrush = new SolidColorBrush(contrasting);
-
-                    // 1) Update application-scoped MahApps brushes
-                    //    Accent* and Highlight -> palette.Accent
-                    //    IdealForeground -> contrasting color (for glyphs and text that needs to pop)
                     var accentBrush = new SolidColorBrush(palette.Accent);
-                    foreach (var key in new[] { "MahApps.Brushes.Accent", "MahApps.Brushes.Accent2", "MahApps.Brushes.Accent3", "MahApps.Brushes.Accent4", "MahApps.Brushes.AccentBase", "MahApps.Brushes.Highlight" })
-                    {
-                        if (app.Resources.Contains(key))
-                            app.Resources[key] = accentBrush;
-                    }
-                    if (app.Resources.Contains("MahApps.Brushes.IdealForeground"))
-                        app.Resources["MahApps.Brushes.IdealForeground"] = contrastingBrush;
+                    var idealForeground = new SolidColorBrush(ContrastingForeground(palette.Accent));
+                    var chromeBrush = new SolidColorBrush(palette.Chrome);
 
-                    // 2) Update the same keys inside the merged MahApps theme dictionary (Dark.Red.xaml).
-                    foreach (ResourceDictionary dict in app.Resources.MergedDictionaries)
+                    var accentKeys = new[]
                     {
-                        foreach (var key in new[] { "MahApps.Brushes.Accent", "MahApps.Brushes.AccentBase", "MahApps.Brushes.Highlight" })
+                        "MahApps.Brushes.Accent",
+                        "MahApps.Brushes.Accent2",
+                        "MahApps.Brushes.Accent3",
+                        "MahApps.Brushes.Accent4",
+                        "MahApps.Brushes.AccentBase",
+                        "MahApps.Brushes.Highlight",
+                    };
+
+                    // The caption bar defaults to the accent. Point it at the chrome colour so
+                    // the title bar matches the window body from the first paint.
+                    var chromeKeys = new[]
+                    {
+                        "MahApps.Brushes.WindowTitle",
+                        "MahApps.Brushes.WindowTitle.NonActive",
+                    };
+
+                    void Retint(ResourceDictionary target)
+                    {
+                        foreach (var key in accentKeys)
                         {
-                            if (dict.Contains(key))
-                                dict[key] = accentBrush;
+                            if (target.Contains(key))
+                            {
+                                target[key] = accentBrush;
+                            }
                         }
-                        if (dict.Contains("MahApps.Brushes.IdealForeground"))
-                            dict["MahApps.Brushes.IdealForeground"] = contrastingBrush;
+
+                        foreach (var key in chromeKeys)
+                        {
+                            if (target.Contains(key))
+                            {
+                                target[key] = chromeBrush;
+                            }
+                        }
+
+                        if (target.Contains("MahApps.Brushes.IdealForeground"))
+                        {
+                            target["MahApps.Brushes.IdealForeground"] = idealForeground;
+                        }
                     }
 
-                    // 3) Explicitly retint any open MetroWindow title bars.
-                    if (app.MainWindow is MahApps.Metro.Controls.MetroWindow metro)
+                    // Application scope first, then the merged theme dictionary the stock
+                    // brushes actually live in — a key present in the merged dictionary is not
+                    // reached by writing to app.Resources alone.
+                    Retint(app.Resources);
+                    foreach (ResourceDictionary dictionary in app.Resources.MergedDictionaries)
                     {
-                        // Title bar background = accent
-                        metro.WindowTitleBrush = accentBrush;
-                        metro.NonActiveWindowTitleBrush = accentBrush;
-                        // Title text and window button glyphs = contrasting color (so they are visible on the accent bar)
-                        metro.TitleForeground = contrastingBrush;
-                        // Ensure the window button glyphs use IdealForeground (which we set to contrasting above)
-                        // No need to set OverrideDefaultWindowCommandsBrush; we want the button background to remain
-                        // transparent (showing the title bar accent) and the glyphs contrasting.
+                        Retint(dictionary);
+                    }
+
+                    // Windows already on screen: the caption brushes are per-window properties,
+                    // so a resource change does not reach them.
+                    foreach (Window window in app.Windows)
+                    {
+                        if (window is MahApps.Metro.Controls.MetroWindow metro)
+                        {
+                            ApplyChrome(metro, palette);
+                        }
                     }
                 }
                 catch (Exception ex)

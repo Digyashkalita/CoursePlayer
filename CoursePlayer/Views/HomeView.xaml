@@ -104,15 +104,25 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <!-- The whole card is a chromeless button so clicking it opens the course. -->
-                        <Button Command="{Binding DataContext.OpenCourseCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                        <!--
+                            The whole card is a chromeless button so clicking it opens the course.
+                            Style="{x:Null}" is required: the implicit Material Design button style
+                            pins Height to 32, which clipped the card down to a 16px sliver. Opting
+                            out of it lets the button size to the card's own content.
+                        -->
+                        <Button Style="{x:Null}"
+                                Command="{Binding DataContext.OpenCourseCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                 CommandParameter="{Binding}"
                                 Cursor="Hand"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="0"
+                                VerticalAlignment="Top"
                                 HorizontalContentAlignment="Stretch"
                                 ToolTip="Open this course">
                             <Button.Template>
                                 <ControlTemplate TargetType="Button">
-                                    <ContentPresenter />
+                                    <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Top" />
                                 </ControlTemplate>
                             </Button.Template>
                             <materialDesign:Card Width="280"

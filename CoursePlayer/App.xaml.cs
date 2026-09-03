@@ -73,10 +73,16 @@ public partial class App : Application
 
         // Apply the saved matte theme before the window is shown so it never flashes the
         // default palette first.
-        _services.GetRequiredService<IThemeService>().Initialize();
+        var theme = _services.GetRequiredService<IThemeService>();
+        theme.Initialize();
 
         var window = _services.GetRequiredService<MainWindow>();
         window.DataContext = _services.GetRequiredService<MainWindowViewModel>();
+
+        // The caption bar is a per-window property, so it has to be painted on the instance —
+        // the theme was applied before this window existed.
+        theme.ApplyWindowChrome(window);
+
         MainWindow = window;
         window.Show();
 
