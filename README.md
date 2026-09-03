@@ -14,8 +14,11 @@ never makes a network request.
 
 - **Import from a folder.** Scans a directory tree, groups files into sections,
   and probes each video for duration, codec, and resolution.
-- **Course library.** A grid of course cards with progress, and a course detail
-  page listing every lesson.
+- **Course library.** A grid of course cards with cover art and a content
+  summary, and a course detail page listing every lesson.
+- **Cover art.** Video lessons get a thumbnail taken from 10 % into the file;
+  PDFs get their first page rendered. Generated once, cached on disk, and shown
+  on the home grid, the lesson list, and the player playlist.
 - **Video player.** Custom scrubber with a buffered track, 10-second skip,
   playback speed, volume, subtitles from sidecar `.srt` files, fullscreen, a
   collapsible "Up next" playlist, and chrome that hides itself while you watch.
@@ -27,7 +30,8 @@ never makes a network request.
 
 - Windows 10 or 11, 64-bit
 - [.NET 9 desktop runtime](https://dotnet.microsoft.com/download/dotnet/9.0)
-- FFmpeg **4.4** shared binaries, 64-bit, in `C:\ffmpeg\x64`
+- FFmpeg **4.4** shared binaries, 64-bit, in `C:\ffmpeg\x64`, including
+  `ffmpeg.exe` (used to extract thumbnail frames)
 
 The FFmpeg version matters: the player binds FFmpeg 4.4 sonames
 (`avcodec-58` and friends) and will not load a newer build. Override the
@@ -39,7 +43,8 @@ location with the `COURSEPLAYER_FFMPEG_DIR` environment variable.
 dotnet build CoursePlayer\CoursePlayer.csproj -c Debug
 ```
 
-The app stores its database and logs under `%LOCALAPPDATA%\CoursePlayer`.
+The app stores its database, logs, and generated cover art under
+`%LOCALAPPDATA%\CoursePlayer`.
 
 ## Project status
 

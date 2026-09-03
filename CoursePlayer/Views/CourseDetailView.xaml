@@ -76,14 +76,48 @@
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
 
-                                                <!-- Icon -->
-                                                <materialDesign:PackIcon Grid.Column="0"
-                                                                       Kind="{Binding Icon}"
-                                                                       Width="24"
-                                                                       Height="24"
-                                                                       Margin="0,0,12,0"
-                                                                       VerticalAlignment="Center"
-                                                                       Foreground="{DynamicResource App.Brush.TextPrimary}" />
+                                                <!--
+                                                    Cover art, with the type icon as the fallback. The
+                                                    frame keeps its 16:9 footprint either way, so rows
+                                                    do not reflow as covers stream in.
+                                                -->
+                                                <Border Grid.Column="0"
+                                                        Width="96"
+                                                        Height="54"
+                                                        Margin="0,0,12,0"
+                                                        CornerRadius="4"
+                                                        VerticalAlignment="Center"
+                                                        Background="{DynamicResource App.Brush.SurfaceRaised}"
+                                                        ClipToBounds="True">
+                                                    <Grid>
+                                                        <Image Source="{Binding ThumbnailPath, Converter={StaticResource PathToImage}}"
+                                                               Stretch="UniformToFill"
+                                                               RenderOptions.BitmapScalingMode="HighQuality"
+                                                               Visibility="{Binding HasThumbnail, Converter={StaticResource BoolToVisibility}}" />
+
+                                                        <materialDesign:PackIcon Kind="{Binding Icon}"
+                                                                                 Width="24"
+                                                                                 Height="24"
+                                                                                 HorizontalAlignment="Center"
+                                                                                 VerticalAlignment="Center"
+                                                                                 Foreground="{DynamicResource App.Brush.TextSecondary}"
+                                                                                 Visibility="{Binding HasThumbnail, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
+
+                                                        <!-- Length badge, bottom-right, as on a YouTube card. -->
+                                                        <Border HorizontalAlignment="Right"
+                                                                VerticalAlignment="Bottom"
+                                                                Margin="0,0,3,3"
+                                                                Padding="4,1"
+                                                                CornerRadius="3"
+                                                                Background="#CC000000"
+                                                                Visibility="{Binding Duration, Converter={StaticResource NullOrEmptyToVisibility}}">
+                                                            <TextBlock Text="{Binding Duration}"
+                                                                       FontSize="10"
+                                                                       FontWeight="SemiBold"
+                                                                       Foreground="White" />
+                                                        </Border>
+                                                    </Grid>
+                                                </Border>
 
                                                 <!-- Details -->
                                                 <StackPanel Grid.Column="1"

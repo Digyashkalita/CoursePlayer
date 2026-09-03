@@ -16,8 +16,8 @@ phase and whenever a hard-won environment fact is discovered.
 | 1 | Foundation — project skeleton, DI, database, theming, shell window | Complete |
 | 2 | Ingestion — folder scan, import wizard, metadata probe | Complete |
 | 3 | Home & Navigation — course grid, course detail, navigation service | Complete |
-| 4 | Video Player — full YouTube-style player chrome | In progress |
-| 5 | Thumbnails | Not started |
+| 4 | Video Player — full YouTube-style player chrome | Complete (one known upstream crash, see below) |
+| 5 | Thumbnails — cover art for courses, lessons, and playlist rows | Complete |
 | 6 | Documents (PDF/DOCX viewers) | Not started |
 | 7 | Polish | Not started |
 
@@ -45,10 +45,11 @@ Working agreement: build one phase at a time and stop for the user's explicit
 CoursePlayer/
   App.xaml.cs           DI container, Serilog setup, global exception handlers
   Controls/             reusable custom controls
-  Converters/           value converters (BoolToVisibility, InverseBoolean, ...)
+  Converters/           value converters (BoolToVisibility, PathToImage, ...)
   Data/                 CoursePlayerDbContext + Migrations
   Resources/            Styles.xaml, brushes, theme resources
-  Services/             navigation, playback, database, theming, ingestion
+  Services/             navigation, playback, database, theming, ingestion,
+                        thumbnails
   ViewModels/           one view model per view
   Views/                MainWindow + page views
 ```
@@ -65,7 +66,9 @@ Do not re-derive them.
 - `FFME.Windows 4.4.350` binds FFmpeg **4.4** sonames (`avcodec-58` and
   friends). A newer FFmpeg will not load.
 - `C:\ffmpeg\x64` holds FFmpeg 4.4.1 x64 shared DLLs, including
-  `postproc-55.dll`. Override the location with the `COURSEPLAYER_FFMPEG_DIR`
+  `postproc-55.dll`, **plus the `ffmpeg.exe`, `ffplay.exe` and `ffprobe.exe`
+  command-line tools** — which is what makes shelling out for thumbnail frames
+  possible. Override the location with the `COURSEPLAYER_FFMPEG_DIR`
   environment variable.
 - Upgrading FFME to a build that binds `avcodec-63` was considered and
   explicitly rejected.
@@ -112,9 +115,26 @@ Style keys that do **not** exist: `MaterialDesignSlider`,
 `ChevronRight`, `ClosedCaption`, `ClosedCaptionOutline`, `Fullscreen`,
 `FullscreenExit`, `CheckCircle`, `Play`, `Pause`, `VolumeHigh`, `VolumeMedium`,
 `VolumeOff`, `PlayCircleOutline`, `FilePdfBox`, `FileWordBox`,
-`FileDocumentOutline`, `FileOutline`.
+`FileDocumentOutline`, `FileOutline`, `FolderMultipleOutline`, `HeartOutline`.
 
 `Replay10` and `Forward10` do **not** exist — use `Rewind10` / `FastForward10`.
+
+### PdfiumViewer.Net.WPF 3.0.4 (+ bblanchon.PDFium.Win32 154.0.8021)
+
+The API differs from the older `PdfiumViewer` package that most samples use.
+Confirmed by reflection — there is no `PdfiumViewer.PdfDocument`, no
+`document.PageSizes`, and no `document.Render(...)`:
+
+- `PdfiumViewer.Core.PdfDocument.Load(string path)` / `.Load(Stream)`.
+  Properties: `PageCount`, `Pages` (`IReadOnlyList<PdfPage>`), `Bookmarks`,
+  `Selections`.
+- `PdfiumViewer.Core.PdfPage`: `double Width`, `double Height`, `Size Size`, and
+  `Image Render(int width, int height, float dpiX, float dpiY, PdfRotation rotate, PdfRenderFlags flags)`.
+- `PdfRenderFlags` lives in `PdfiumViewer.Enums`, but **`PdfRotation` lives in
+  the root `PdfiumViewer` namespace** — write it as
+  `PdfiumViewer.PdfRotation.Rotate0` or the compiler reports `CS0103`.
+- `System.Drawing` (`Bitmap`, `Graphics`, `InterpolationMode`, `ImageFormat`) is
+  available in this WPF app and is used for letterboxing and JPEG encoding.
 
 ### App resource keys
 
@@ -125,7 +145,8 @@ Style keys that do **not** exist: `MaterialDesignSlider`,
 - Other styles: `App.Sidebar.NavItem`, `App.DropZone.Border`,
   `App.Player.{Scrubber, VolumeSlider, IconButton, PlaylistItem}`.
 - Converters: `BoolToVisibility` (accepts `ConverterParameter=Invert`),
-  `InverseBoolean`, `NullOrEmptyToVisibility` (also accepts `Invert`).
+  `InverseBoolean`, `NullOrEmptyToVisibility` (also accepts `Invert`),
+  `PathToImage`.
 
 ### Database
 
@@ -134,7 +155,13 @@ Style keys that do **not** exist: `MaterialDesignSlider`,
   `Progress` — querying `Progress` fails with `no such table`.
 - `Assets` columns: `Id`, `CourseId`, `Title`, `FilePath`, `Type`, `OrderIndex`,
   `Duration`, `Codec`, `Resolution`, `IsOnline`, `Section`. There is no `Width`
-  or `Height` column; resolution is a single string.
+  or `Height` column; resolution is a single string. There is deliberately no
+  `ThumbnailPath` column — asset covers are addressed by id convention.
+- `AssetType`: `Unknown = 0, Video = 1, Pdf = 2, Docx = 3, Text = 4`. There is no
+  `AssetType.Document`.
+- Generated content lives under `%LOCALAPPDATA%\CoursePlayer\Assets\`:
+  `Thumbnails\{assetId}\cover.jpg` and `CourseThumbnails\{courseId}.jpg`. Both
+  directories are created by `IAppPaths.EnsureCreated()`.
 
 ### Test data
 
@@ -177,8 +204,7 @@ Start-Process "D:\vs_code\CoursePlayer\bin\Debug\net9.0-windows\win-x64\CoursePl
 ```
 
 WPF also compiles a `*_wpftmp.csproj`, so every XAML or C# error is reported
-twice. One pre-existing warning is expected:
-`CourseDetailViewModel.cs(83,24): warning CS8625`.
+twice. As of the end of Phase 5 the build is warning-free.
 
 ### Verification method
 
@@ -272,29 +298,103 @@ Ruled out so far:
 | Video renderer | `e.Options.IsVideoDisabled = true` | still dies |
 | DirectSound COM teardown | `RendererOptions.UseLegacyAudioOut = true` | still dies |
 | FFME vertical-sync P/Invoke | `VerticalSyncEnabled = false` | still dies |
-| FFME itself | standalone probe: 30 opens + seeks on a bare `MediaElement` | **survives cleanly** |
 | Double command in flight | removed the explicit `Close()` before `Open()` | fixed a real bug, crash persists |
 | Idle playback | 75 s with no interaction | stable |
 | Moderate switching | 12 switches at 3 s dwell, twice | stable |
+| Seeking | 15 switches at 1.5 s dwell with **no** seeks | still dies (1 of 2) |
+| Delegate lifetime | `static readonly object` holders in `AssetPlaybackService` | no effect — reverted |
+| CoursePlayer itself | standalone probe + forced compacting `GC.Collect` between opens | **crashes identically** |
 
-The standalone probe surviving is the important datum: it points at how
-CoursePlayer hosts and drives the element — re-parenting, UIA-driven input, or
-view-model teardown — rather than at FFME's decoding.
+**Conclusion: this is an upstream FFME/FFmpeg defect, not a CoursePlayer bug.**
+A bare `MediaElement` in `temp_ffme_probe`, with no CoursePlayer code involved,
+reproduces the exact WER signature (`P8=c0000409`, `P9=…0a`) once a compacting
+`GC.Collect(2, Forced, blocking, compacting: true)` runs between opens. A lighter
+probe run survived 25 opens, which is why earlier probe runs looked clean.
 
-Normal single-switch use has been stable in every test since the
-dispatcher-deferred autoplay fix.
+The mechanism is consistent with a native callback delegate being relocated or
+collected while FFmpeg still holds its function pointer: reflection shows FFME
+stores several as plain fields —
+`FFInterop.FFmpegLogCallback` (`av_log_set_callback_callback`),
+`HardwareAccelerator.<GetFormatCallback>k__BackingField`
+(`AVCodecContext_get_format`), `DataComponentSet.<OnDataPacketReceived>`,
+`MediaComponentSet.<OnPacketQueueChanged>`, and
+`MediaComponent.DecodePacketFunction`. Holding `object` references from our own
+code cannot help, because the delegates we would need to pin live inside FFME.
 
-Next candidates to investigate: `MediaElement` re-parenting in
-`VideoPlayerView.AttachMedia` / `DetachMedia`, and whether UI Automation tree
-reads alone can trigger the fault.
+Practical impact is low: the fault needs sub-2-second lesson switching, which no
+real user session produces. Normal use has been stable in every test since the
+dispatcher-deferred autoplay fix. Fixing it properly means patching or replacing
+FFME; upgrading to an `avcodec-63` build was explicitly rejected.
+
+Reproduction: `. D:\vs_code\harsh.ps1; Invoke-HarshTrials -Count 2 -Switches 15 -Dwell 1.5 -Seek`.
+
+---
+
+## Phase 5 — Thumbnails
+
+### Delivered
+
+- `Services/ThumbnailService.cs` — generates 320×180 JPEG covers.
+  - Videos: shells out to `ffmpeg.exe` (present in `C:\ffmpeg\x64` alongside the
+    shared DLLs) seeking to 10 % of the duration, falling back to 5 s when the
+    duration is unknown and retrying with no `-ss` for very short clips.
+  - PDFs: renders page 1 through PDFium and letterboxes it onto white.
+  - Both are scaled with `force_original_aspect_ratio=decrease` and padded, so a
+    cover never stretches.
+- `Converters/PathToImageConverter.cs` (`PathToImage`) — loads a frozen
+  `BitmapImage` with `BitmapCacheOption.OnLoad` so the file handle is released
+  and a future "Clear Cache" can delete the JPEG.
+- Home cards gained a 280×157 cover strip; course detail rows gained a 96×54
+  cover with a duration badge; the player playlist gained a 72×40 cover. All
+  three fall back to the existing type icon when no cover exists.
+- `ImportCoordinator` generates covers right after metadata enrichment, so a
+  freshly imported course already has artwork.
+
+### Design decisions worth remembering
+
+- **No schema change.** Covers are addressed by convention:
+  `Assets\Thumbnails\{assetId}\cover.jpg` and
+  `Assets\CourseThumbnails\{courseId}.jpg`. `IAppPaths` has exposed these
+  directories since Phase 1, so no EF migration was needed. `Course.ThumbnailPath`
+  still exists and wins when the user supplies their own image.
+- **Home generates one cover per course, not all of them.**
+  `EnsureCourseThumbnailAsync` stops at the first asset that rasterises;
+  `GenerateForCourseAsync` (the full sweep) runs only when a course is actually
+  opened. Without that split, launching the app rasterised every lesson of every
+  course.
+- **Generation is serialised through one `SemaphoreSlim`**, always off the UI
+  thread, always cancellable, and never blocks page load. A 25-asset course would
+  otherwise spawn 25 concurrent `ffmpeg` processes.
+- `CourseDetailViewModel` implements `INavigatedFromAware` so leaving the page
+  cancels the sweep instead of letting ffmpeg grind on in the background.
+- Covers are cached: a restart re-renders nothing (verified by comparing
+  `LastWriteTime` across runs).
+
+### Verified working
+
+- Cold cache, Home only: 1 course cover written, 1 asset cover written.
+- Opening the course: 22 asset covers written (8 videos + 14 PDFs), all
+  320×180. The three assets with no cover are Ids 13, 16 and 20 — plain-text
+  files (`Type = 4`), which have nothing to rasterise.
+- Asset 12 — the PDF that FFME refuses with `Invalid data found` — renders
+  correctly through the PDFium path.
+- Luma sampling confirms real imagery rather than blank frames: videos average
+  22–40 with a spread of 10–40, PDF pages average ~250 on white with a non-zero
+  spread.
+- UIA element counts: 1 `Image` on Home, 22 in the detail view, 13 visible
+  72×40 covers in the player playlist.
+- Restart with a warm cache rewrites 0 files and still renders 22 covers.
+- Clean log across the whole flow: no `ERR`, no `FTL`, no non-FFME `WRN`.
 
 ---
 
 ## Housekeeping
 
-Delete when Phase 4 closes: `temp_sqlite_update/`, `temp_ffme_probe/`,
-`temp_mdix_probe/`, `dump*.txt`, `probe_out.txt`, `probe_err.txt`,
-`cp_stdout.txt`, `cp_stderr.txt`. All are git-ignored.
+Deleted at the end of Phase 5: `temp_ffme_probe/`, `temp_mdix_probe/`,
+`dump*.txt`, `probe_out*.txt`, `probe_err*.txt`, `cp_stdout.txt`,
+`cp_stderr.txt`, `_tmp_cover.jpg`, three stale `.bak` files, and a stray
+`Views/CourseDetailViewModel.cs`.
 
-Kept deliberately: `uia.ps1` and the crash-reproduction scripts, until the
-fail-fast is closed out.
+Kept deliberately: `uia.ps1` (the verification harness), the crash-reproduction
+scripts, and `temp_sqlite_update/` (the DB inspection and progress-reset helper:
+`cd D:\vs_code\temp_sqlite_update; dotnet run --verbosity quiet -- reset`).

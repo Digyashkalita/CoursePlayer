@@ -6,6 +6,7 @@
     <converters:BooleanToVisibilityConverter x:Key="BoolToVisibility" />
     <converters:InverseBooleanConverter x:Key="InverseBoolean" />
     <converters:NullOrEmptyToVisibilityConverter x:Key="NullOrEmptyToVisibility" />
+    <converters:PathToImageConverter x:Key="PathToImage" />
 
     <!-- ============================ Typography ============================ -->
 

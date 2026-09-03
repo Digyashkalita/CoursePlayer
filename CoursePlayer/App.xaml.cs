@@ -124,6 +124,7 @@ public partial class App : Application
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IThemeService, ThemeService>();
         services.AddSingleton<IAssetPlaybackService, AssetPlaybackService>();
+        services.AddSingleton<IThumbnailService, ThumbnailService>();
 
         services.AddSingleton<MainWindowViewModel>();
         services.AddSingleton<MainWindow>();

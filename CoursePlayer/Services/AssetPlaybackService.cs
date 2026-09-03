@@ -221,17 +221,6 @@ public sealed class AssetPlaybackService : IAssetPlaybackService, IDisposable
 
     private void OnMediaOpening(object? sender, MediaOpeningEventArgs e)
     {
-        // TEMP DIAGNOSTIC: isolate the audio renderer as the fail-fast source.
-        if (Environment.GetEnvironmentVariable("COURSEPLAYER_NO_AUDIO") == "1")
-        {
-            e.Options.IsAudioDisabled = true;
-        }
-
-        if (Environment.GetEnvironmentVariable("COURSEPLAYER_NO_VIDEO") == "1")
-        {
-            e.Options.IsVideoDisabled = true;
-        }
-
         // An external .srt can only be attached while the container is opening.
         if (!string.IsNullOrWhiteSpace(SubtitlesSource) && File.Exists(SubtitlesSource))
         {

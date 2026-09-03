@@ -52,6 +52,7 @@ public partial class VideoPlayerViewModel : PageViewModelBase, INavigationAware,
     private readonly IDatabaseWriter _database;
     private readonly INavigationService _navigation;
     private readonly INotificationService _notifications;
+    private readonly IThumbnailService _thumbnails;
     private readonly ILogger<VideoPlayerViewModel> _logger;
 
     private readonly DispatcherTimer _clockTimer;
@@ -76,12 +77,14 @@ public partial class VideoPlayerViewModel : PageViewModelBase, INavigationAware,
         IDatabaseWriter database,
         INavigationService navigation,
         INotificationService notifications,
+        IThumbnailService thumbnails,
         ILogger<VideoPlayerViewModel> logger)
     {
         _playback = playback;
         _database = database;
         _navigation = navigation;
         _notifications = notifications;
+        _thumbnails = thumbnails;
         _logger = logger;
 
         Title = "Player";
@@ -335,7 +338,9 @@ public partial class VideoPlayerViewModel : PageViewModelBase, INavigationAware,
         Playlist.Clear();
         foreach (var row in rows)
         {
-            Playlist.Add(new PlaylistItemViewModel(row));
+            // Rows show the cover generated earlier; nothing is generated from here, so
+            // opening the playlist never spawns ffmpeg.
+            Playlist.Add(new PlaylistItemViewModel(row, _thumbnails.GetAssetThumbnailPath(row.Id)));
         }
 
         MarkCurrentPlaylistItem();
@@ -1062,7 +1067,7 @@ public partial class VideoPlayerViewModel : PageViewModelBase, INavigationAware,
     {
         // A change that did not come from the clock and is not part of a drag means the user
         // moved the scrubber directly - keyboard, or a click on the rail - so honour it.
-        if (_isClockWritingPosition || IsScrubbing || _isLeaving || !_playback.IsOpen)
+        if (_isClockWritingPosition || IsScrubbing || _isLeaving || _isSwitchingAsset || !_playback.IsOpen)
         {
             return;
         }
@@ -1072,6 +1077,12 @@ public partial class VideoPlayerViewModel : PageViewModelBase, INavigationAware,
         {
             return;
         }
+
+        _logger.LogDebug(
+            "Scrubber-driven seek to {Target} (switching={Switching}, position={Position}).",
+            target,
+            _isSwitchingAsset,
+            _playback.Position);
 
         _ = SeekFromScrubberAsync(target);
     }
@@ -1202,7 +1213,7 @@ public partial class VideoPlayerViewModel : PageViewModelBase, INavigationAware,
     /// <summary>One row in the collapsible course playlist.</summary>
     public sealed partial class PlaylistItemViewModel : ObservableObject
     {
-        internal PlaylistItemViewModel(PlaylistRow row)
+        internal PlaylistItemViewModel(PlaylistRow row, string? thumbnailPath = null)
         {
             AssetId = row.Id;
             Title = row.Title;
@@ -1218,6 +1229,7 @@ public partial class VideoPlayerViewModel : PageViewModelBase, INavigationAware,
                 _ => PackIconKind.FileOutline,
             };
             _isCompleted = row.Completed;
+            ThumbnailPath = thumbnailPath;
         }
 
         public int AssetId { get; }
@@ -1231,6 +1243,12 @@ public partial class VideoPlayerViewModel : PageViewModelBase, INavigationAware,
         public string DurationText { get; }
 
         public PackIconKind Icon { get; }
+
+        /// <summary>Cover art for this lesson, or null when none has been generated.</summary>
+        public string? ThumbnailPath { get; }
+
+        /// <summary>Chooses between the artwork and the type icon in the playlist row.</summary>
+        public bool HasThumbnail => !string.IsNullOrEmpty(ThumbnailPath);
 
         /// <summary>Only videos play here; documents get their own viewers in a later phase.</summary>
         public bool IsPlayable => Type == AssetType.Video;

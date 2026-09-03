@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CoursePlayer.Data;
@@ -14,19 +15,27 @@ namespace CoursePlayer.ViewModels;
 /// and its assets and groups them by their imported folder hierarchy (sections). This is
 /// where the Phase 2 probe metadata (duration, resolution) first becomes visible.
 /// </summary>
-public partial class CourseDetailViewModel : PageViewModelBase, INavigationAware
+public partial class CourseDetailViewModel : PageViewModelBase, INavigationAware, INavigatedFromAware, IDisposable
 {
     private readonly IDatabaseWriter _database;
     private readonly INavigationService _navigation;
+    private readonly IThumbnailService _thumbnails;
     private readonly ILogger<CourseDetailViewModel> _logger;
+
+    /// <summary>Cancels in-flight cover generation when the user leaves the page.</summary>
+    private CancellationTokenSource? _thumbnailCts;
+
+    private bool _isDisposed;
 
     public CourseDetailViewModel(
         IDatabaseWriter database,
         INavigationService navigation,
+        IThumbnailService thumbnails,
         ILogger<CourseDetailViewModel> logger)
     {
         _database = database;
         _navigation = navigation;
+        _thumbnails = thumbnails;
         _logger = logger;
         Title = "Course";
 
@@ -44,9 +53,6 @@ public partial class CourseDetailViewModel : PageViewModelBase, INavigationAware
 
     [ObservableProperty]
     private string _summary = string.Empty;
-
-    [ObservableProperty]
-    private string _errorMessage = string.Empty;
 
     public bool CanGoBack => _navigation.CanGoBack;
 
@@ -105,7 +111,7 @@ public partial class CourseDetailViewModel : PageViewModelBase, INavigationAware
             Summary = BuildSummary(assets);
 
             Sections.Clear();
-            foreach (var group in GroupIntoSections(assets))
+            foreach (var group in GroupIntoSections(assets, _thumbnails))
             {
                 Sections.Add(group);
             }
@@ -115,6 +121,10 @@ public partial class CourseDetailViewModel : PageViewModelBase, INavigationAware
                 courseId,
                 assets.Count,
                 Sections.Count);
+
+            // Covers are generated after the rows are on screen: the page must never wait on
+            // ffmpeg. Each finished cover is pushed straight into its row.
+            StartThumbnailGeneration(courseId);
         }
         catch (Exception ex)
         {
@@ -127,9 +137,90 @@ public partial class CourseDetailViewModel : PageViewModelBase, INavigationAware
         }
     }
 
+    /// <summary>
+    /// Kicks off background cover generation for the course and feeds each result back into
+    /// the matching row. Cancels any run still in flight from a previous course.
+    /// </summary>
+    private void StartThumbnailGeneration(int courseId)
+    {
+        _thumbnailCts?.Cancel();
+        _thumbnailCts?.Dispose();
+        _thumbnailCts = new CancellationTokenSource();
+
+        var token = _thumbnailCts.Token;
+
+        // Index the rows once so each callback is a dictionary hit rather than a scan.
+        var rows = Sections
+            .SelectMany(s => s.Assets)
+            .ToDictionary(a => a.AssetId);
+
+        _ = Task.Run(
+            async () =>
+            {
+                try
+                {
+                    await _thumbnails.GenerateForCourseAsync(
+                        courseId,
+                        onAssetThumbnail: (assetId, path) =>
+                        {
+                            if (!rows.TryGetValue(assetId, out var row))
+                            {
+                                return;
+                            }
+
+                            // Generation runs on a worker thread; the binding target does not.
+                            var dispatcher = Application.Current?.Dispatcher;
+                            if (dispatcher is null || dispatcher.CheckAccess())
+                            {
+                                row.ThumbnailPath = path;
+                            }
+                            else
+                            {
+                                dispatcher.InvokeAsync(() => row.ThumbnailPath = path);
+                            }
+                        },
+                        cancellationToken: token);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Left the page; nothing to report.
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Cover generation failed for course {CourseId}.", courseId);
+                }
+            },
+            token);
+    }
+
+    public void Dispose()
+    {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        _isDisposed = true;
+        _thumbnailCts?.Cancel();
+        _thumbnailCts?.Dispose();
+        _thumbnailCts = null;
+    }
+
+    /// <summary>
+    /// Stops cover generation when the shell navigates away, so opening a lesson does not
+    /// leave ffmpeg grinding through the rest of the course.
+    /// </summary>
+    public Task OnNavigatedFromAsync()
+    {
+        _thumbnailCts?.Cancel();
+        return Task.CompletedTask;
+    }
+
     // Assets arrive pre-ordered by (section, filename), so grouping by section in
     // first-appearance order keeps sections in tree order with root-level files first.
-    private static IEnumerable<CourseSectionViewModel> GroupIntoSections(IReadOnlyList<Asset> assets)
+    private static IEnumerable<CourseSectionViewModel> GroupIntoSections(
+        IReadOnlyList<Asset> assets,
+        IThumbnailService thumbnails)
     {
         var groups = new List<CourseSectionViewModel>();
         var byName = new Dictionary<string, CourseSectionViewModel>(StringComparer.OrdinalIgnoreCase);
@@ -146,7 +237,8 @@ public partial class CourseDetailViewModel : PageViewModelBase, INavigationAware
                 groups.Add(group);
             }
 
-            group.Assets.Add(new CourseAssetViewModel(asset));
+            // A cover generated on an earlier visit shows immediately; the rest stream in.
+            group.Assets.Add(new CourseAssetViewModel(asset, thumbnails.GetAssetThumbnailPath(asset.Id)));
         }
 
         // If everything sits in the root there is only one, unlabelled-feeling group; still
@@ -198,9 +290,9 @@ public partial class CourseSectionViewModel : ObservableObject
 }
 
 /// <summary>A single asset row in the detail view.</summary>
-public sealed class CourseAssetViewModel
+public partial class CourseAssetViewModel : ObservableObject
 {
-    public CourseAssetViewModel(Asset asset)
+    public CourseAssetViewModel(Asset asset, string? thumbnailPath = null)
     {
         Title = asset.Title;
         IsOnline = asset.IsOnline;
@@ -208,6 +300,7 @@ public sealed class CourseAssetViewModel
         Duration = asset.Duration is { } d ? FormatDuration(d) : null;
         Resolution = asset.Resolution;
         AssetId = asset.Id;
+        _thumbnailPath = thumbnailPath;
     }
 
     public string Title { get; }
@@ -222,6 +315,18 @@ public sealed class CourseAssetViewModel
     public string? Resolution { get; }
 
     public int AssetId { get; }
+
+    /// <summary>
+    /// Absolute path to this asset's cover, or null while none exists. Set from the
+    /// background generator as covers finish, so the row swaps its icon for artwork
+    /// without the page reloading.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasThumbnail))]
+    private string? _thumbnailPath;
+
+    /// <summary>Drives which of the two visuals the row shows: artwork or a type icon.</summary>
+    public bool HasThumbnail => !string.IsNullOrEmpty(ThumbnailPath);
 
     private static PackIconKind IconFor(AssetType type) => type switch
     {

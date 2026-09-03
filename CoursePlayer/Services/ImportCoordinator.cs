@@ -37,6 +37,7 @@ public sealed class ImportCoordinator : IImportCoordinator, IDisposable
     private readonly IMediaProbe _probe;
     private readonly IDatabaseWriter _database;
     private readonly IFFmpegBootstrapper _ffmpeg;
+    private readonly IThumbnailService _thumbnails;
     private readonly INotificationService _notifications;
     private readonly ILogger<ImportCoordinator> _logger;
 
@@ -49,6 +50,7 @@ public sealed class ImportCoordinator : IImportCoordinator, IDisposable
         IMediaProbe probe,
         IDatabaseWriter database,
         IFFmpegBootstrapper ffmpeg,
+        IThumbnailService thumbnails,
         INotificationService notifications,
         ILogger<ImportCoordinator> logger)
     {
@@ -58,6 +60,7 @@ public sealed class ImportCoordinator : IImportCoordinator, IDisposable
         _probe = probe;
         _database = database;
         _ffmpeg = ffmpeg;
+        _thumbnails = thumbnails;
         _notifications = notifications;
         _logger = logger;
     }
@@ -171,9 +174,12 @@ public sealed class ImportCoordinator : IImportCoordinator, IDisposable
     /// <summary>Probes every video and writes back duration/codec/resolution in batches.</summary>
     private async Task EnrichInBackgroundAsync(IReadOnlyList<Course> courses, CancellationToken cancellationToken)
     {
+        // Probing needs FFmpeg in-process; covers only need ffmpeg.exe and PDFium, so a
+        // PDF-only course still gets artwork even when the shared libraries are missing.
         if (!_ffmpeg.IsAvailable)
         {
             _logger.LogInformation("Skipping metadata enrichment: FFmpeg is unavailable.");
+            await GenerateCoversAsync(courses, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -185,6 +191,7 @@ public sealed class ImportCoordinator : IImportCoordinator, IDisposable
 
         if (videoAssetIds.Count == 0)
         {
+            await GenerateCoversAsync(courses, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -245,6 +252,10 @@ public sealed class ImportCoordinator : IImportCoordinator, IDisposable
 
             _logger.LogInformation("Metadata enrichment complete: {Count} video(s) updated.", enriched);
             _notifications.Show("Finished reading video details.");
+
+            // Covers come last: durations are known by now, so each frame is grabbed at the
+            // intended 10% mark rather than the blind 5-second fallback.
+            await GenerateCoversAsync(courses, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -253,6 +264,32 @@ public sealed class ImportCoordinator : IImportCoordinator, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Metadata enrichment failed after {Count} video(s).", enriched);
+        }
+    }
+
+    /// <summary>
+    /// Generates the cover art for freshly imported courses so the grid is already populated
+    /// the first time the user looks at it.
+    /// </summary>
+    private async Task GenerateCoversAsync(IReadOnlyList<Course> courses, CancellationToken cancellationToken)
+    {
+        try
+        {
+            foreach (var course in courses)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await _thumbnails
+                    .GenerateForCourseAsync(course.Id, cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutting down; partial covers are fine, the rest generate on next view.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Cover generation failed during import.");
         }
     }
 

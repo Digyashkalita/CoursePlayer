@@ -92,10 +92,7 @@
             </StackPanel>
         </Border>
 
-        <!--
-            Placeholder listing. Phase 3 replaces this with the CourseCard grid; showing
-            titles now proves the data layer round-trips.
-        -->
+        <!-- Course card grid: cover art, title, and a content summary per course. -->
         <ScrollViewer Grid.Row="1"
                       VerticalScrollBarVisibility="Auto"
                       Visibility="{Binding HasCourses, Converter={StaticResource BoolToVisibility}}">
@@ -120,18 +117,49 @@
                             </Button.Template>
                             <materialDesign:Card Width="280"
                                                  Margin="0,0,16,16"
-                                                 Padding="16"
-                                                 Background="{DynamicResource App.Brush.SurfaceRaised}">
+                                                 Background="{DynamicResource App.Brush.SurfaceRaised}"
+                                                 ClipToBounds="True">
                                 <StackPanel>
-                                    <TextBlock Text="{Binding Title}"
-                                               FontSize="15"
-                                               FontWeight="SemiBold"
-                                               TextTrimming="CharacterEllipsis"
-                                               Foreground="{DynamicResource App.Brush.TextPrimary}" />
-                                    <TextBlock Text="{Binding FolderPath}"
-                                               Margin="0,6,0,0"
-                                               Style="{StaticResource App.Text.Caption}"
-                                               TextTrimming="CharacterEllipsis" />
+                                    <!--
+                                        16:9 cover strip. The frame is always this size so the
+                                        grid never reflows when a cover finishes generating; the
+                                        folder glyph fills it until then.
+                                    -->
+                                    <Border Height="157"
+                                            Background="{DynamicResource App.Brush.Surface}"
+                                            ClipToBounds="True">
+                                        <Grid>
+                                            <Image Source="{Binding ThumbnailPath, Converter={StaticResource PathToImage}}"
+                                                   Stretch="UniformToFill"
+                                                   RenderOptions.BitmapScalingMode="HighQuality"
+                                                   Visibility="{Binding HasThumbnail, Converter={StaticResource BoolToVisibility}}" />
+
+                                            <materialDesign:PackIcon Kind="FolderMultipleOutline"
+                                                                     Width="40"
+                                                                     Height="40"
+                                                                     HorizontalAlignment="Center"
+                                                                     VerticalAlignment="Center"
+                                                                     Foreground="{DynamicResource App.Brush.TextDisabled}"
+                                                                     Visibility="{Binding HasThumbnail, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
+                                        </Grid>
+                                    </Border>
+
+                                    <StackPanel Margin="16,12,16,16">
+                                        <TextBlock Text="{Binding Title}"
+                                                   FontSize="15"
+                                                   FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{DynamicResource App.Brush.TextPrimary}" />
+                                        <TextBlock Text="{Binding Summary}"
+                                                   Margin="0,4,0,0"
+                                                   Style="{StaticResource App.Text.Caption}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding FolderPath}"
+                                                   Margin="0,4,0,0"
+                                                   Style="{StaticResource App.Text.Caption}"
+                                                   Opacity="0.65"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
                                 </StackPanel>
                             </materialDesign:Card>
                         </Button>

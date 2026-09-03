@@ -416,13 +416,33 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
 
-                                    <materialDesign:PackIcon Grid.Column="0"
-                                                             Kind="{Binding Icon}"
-                                                             Width="18"
-                                                             Height="18"
-                                                             VerticalAlignment="Center"
-                                                             Margin="0,0,10,0"
-                                                             Foreground="{DynamicResource App.Brush.TextSecondary}" />
+                                    <!--
+                                        Cover art at YouTube-playlist scale, with the type icon
+                                        as the fallback so rows keep a constant height.
+                                    -->
+                                    <Border Grid.Column="0"
+                                            Width="72"
+                                            Height="40"
+                                            Margin="0,0,10,0"
+                                            CornerRadius="3"
+                                            VerticalAlignment="Center"
+                                            Background="{DynamicResource App.Brush.Surface}"
+                                            ClipToBounds="True">
+                                        <Grid>
+                                            <Image Source="{Binding ThumbnailPath, Converter={StaticResource PathToImage}}"
+                                                   Stretch="UniformToFill"
+                                                   RenderOptions.BitmapScalingMode="HighQuality"
+                                                   Visibility="{Binding HasThumbnail, Converter={StaticResource BoolToVisibility}}" />
+
+                                            <materialDesign:PackIcon Kind="{Binding Icon}"
+                                                                     Width="18"
+                                                                     Height="18"
+                                                                     HorizontalAlignment="Center"
+                                                                     VerticalAlignment="Center"
+                                                                     Foreground="{DynamicResource App.Brush.TextSecondary}"
+                                                                     Visibility="{Binding HasThumbnail, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
+                                        </Grid>
+                                    </Border>
 
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Title}"
